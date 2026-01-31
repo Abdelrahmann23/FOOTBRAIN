@@ -6,6 +6,7 @@
   "main": "server.js",
   "scripts": {
     "dev": "node --watch server.js",
+    "dev:python": "node python-api/start-api.js",
     "start": "node server.js",
     "check-users": "node scripts/check-users.js",
     "clear-users": "node scripts/clear-users.js",

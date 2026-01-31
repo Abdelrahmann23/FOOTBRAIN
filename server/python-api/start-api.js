@@ -27,18 +27,19 @@ const venvCandidates = [
 
 let pythonPath = null;
 let pythonArgs = [path.join(apiDir, 'app.py')];
-for (const p of venvCandidates) {
-  if (fs.existsSync(p)) {
-    pythonPath = p;
-    break;
-  }
+
+// Skip venvs for now - they appear to be broken launcher stubs
+// Use full path to system Python
+const pythonFullPath = 'C:\\Users\\Dell\\AppData\\Local\\Programs\\Python\\Python311\\python.exe';
+if (fs.existsSync(pythonFullPath)) {
+  pythonPath = pythonFullPath;
+} else {
+  // Fallback to trying py command
+  pythonPath = 'py';
+  pythonArgs = ['-3.11', path.join(apiDir, 'app.py')];
 }
-if (!pythonPath) {
-  pythonPath = isWin ? 'py' : 'python3';
-  pythonArgs = isWin ? ['-3.11', path.join(apiDir, 'app.py')] : [path.join(apiDir, 'app.py')];
-  console.log('No venv found. Using: ' + pythonPath + (isWin ? ' -3.11' : ''));
-  console.log('To use a venv: cd server\\python-api, then .\\.venv311\\Scripts\\Activate.ps1, then python app.py');
-}
+
+console.log('Using Python: ' + pythonPath);
 
 console.log('Starting Python API on http://127.0.0.1:5000');
 console.log('Python:', pythonPath);
