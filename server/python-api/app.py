@@ -92,9 +92,20 @@ def load_injury_model():
                     pass
             if names is not None:
                 names = list(names)  # ensure list, correct length
+            # Skip models that look like FIFA-style models (not meant for injury prediction)
+            if not _is_injury_model(names):
+                print(f"   Skipping model at {path}: looks like a FIFA-style model (not injury-focused)")
+                continue
             injury_model = m
             injury_feature_names = names
             print(f"✅ Injury model loaded from {path}")
+            # If model exposes class labels (e.g. sklearn/XGBoost classifiers), log them for debugging
+            try:
+                classes = getattr(injury_model, 'classes_', None)
+                if classes is not None:
+                    print(f"   Classes: {list(classes)}")
+            except Exception:
+                pass
             if injury_feature_names is not None:
                 print(f"   Features ({len(injury_feature_names)}): {list(injury_feature_names)}")
             return True
@@ -264,10 +275,10 @@ def predict_injury():
             training_hours (per week).
     Returns: risk_level (high/medium/low), risk_probability (0-1), and factors.
     """
-    if injury_model is None:
-        return jsonify({
-            'error': 'Injury model not loaded. Please add xgb_model.pkl to server/python-api/models/'
-        }), 500
+    # If no trained injury model is available, fall back to a simple heuristic
+    use_model = injury_model is not None
+    if not use_model:
+        print("⚠️  Injury: no trained injury model loaded — using heuristic fallback")
 
     try:
         raw = request.get_json() or {}
@@ -377,18 +388,53 @@ def predict_injury():
         if age_idx is not None:
             print(f"   [Injury] Age={values[age_idx]}, Height={height}, Weight={weight} -> model input OK")
 
-        # Predict: use class 1 = injury risk (so young/low risk -> lower %, old/high risk -> higher %)
-        if hasattr(injury_model, 'predict_proba'):
-            proba = injury_model.predict_proba(X)[0]
-            p0 = float(proba[0]) if len(proba) > 0 else 0.5
-            p1 = float(proba[1]) if len(proba) > 1 else 0.5
-            # Class 1 = injury risk (22 yo -> lower %, 35 yo -> higher %)
-            risk_probability = p1
+        # Predict using the trained model if available, otherwise use a heuristic
+        if use_model:
+            # Predict: determine which probability corresponds to the "injury" class robustly
+            if hasattr(injury_model, 'predict_proba'):
+                proba = injury_model.predict_proba(X)[0]
+                # Determine positive/injury class index using model.classes_ if available
+                pos_index = None
+                classes = getattr(injury_model, 'classes_', None)
+                if classes is not None:
+                    try:
+                        for i, c in enumerate(classes):
+                            if c in (1, '1', True):
+                                pos_index = i
+                                break
+                    except Exception:
+                        pos_index = None
+                if pos_index is None:
+                    pos_index = 1 if len(proba) > 1 else 0
+                try:
+                    risk_probability = float(proba[pos_index])
+                except Exception:
+                    risk_probability = float(max(proba)) if len(proba) > 0 else 0.5
+            else:
+                pred = injury_model.predict(X)[0]
+                try:
+                    risk_probability = float(pred)
+                except Exception:
+                    risk_probability = 0.5
         else:
-            pred = injury_model.predict(X)[0]
-            risk_probability = float(pred) if isinstance(pred, (int, float)) else 0.5
+            # Heuristic fallback based on age, training_hours, hamstring, and BMI
+            risk_probability = 0.1
+            # Age contribution: older players slightly higher risk
+            age_contrib = max(0.0, (age - 22) / 40.0) * 0.35
+            # Training load contribution
+            train_contrib = min(1.0, training_hours / 40.0) * 0.35
+            # Hamstring weakness increases risk
+            ham_contrib = max(0.0, (60.0 - hamstring) / 60.0) * 0.25
+            # BMI outside optimal range increases risk
+            bmi_contrib = 0.0
+            if bmi_val > 26:
+                bmi_contrib = min(1.0, (bmi_val - 26) / 10.0) * 0.15
+            elif bmi_val < 19:
+                bmi_contrib = min(1.0, (19 - bmi_val) / 10.0) * 0.15
+            risk_probability = risk_probability + age_contrib + train_contrib + ham_contrib + bmi_contrib
+            risk_probability = max(0.0, min(1.0, risk_probability))
 
-        risk_probability = max(0.0, min(1.0, risk_probability))
+        # Map probability to a risk level
         if risk_probability >= 0.6:
             risk_level = 'high'
         elif risk_probability >= 0.35:
