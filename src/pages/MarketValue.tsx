@@ -74,8 +74,8 @@ export default function MarketValue() {
   };
 
   const formatValue = (value: number) => {
-    if (value >= 100) return `€${value.toFixed(0)}M`;
-    return `€${value.toFixed(1)}M`;
+    if (value >= 100) return `EGP ${value.toFixed(0)}M`;
+    return `EGP ${value.toFixed(1)}M`;
   };
 
   const factorChartData = prediction?.valueFactors.map(f => ({
