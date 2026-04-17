@@ -1,6 +1,13 @@
 // API service for backend communication
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
+function resolveApiBaseUrl(): string {
+  const raw = String(import.meta.env.VITE_API_URL || '').trim();
+  if (!raw) return 'http://localhost:3001/api';
+  const noTrailingSlash = raw.replace(/\/+$/, '');
+  return /\/api$/i.test(noTrailingSlash) ? noTrailingSlash : `${noTrailingSlash}/api`;
+}
+
+export const API_BASE_URL = resolveApiBaseUrl();
 
 export interface PlayerInsight {
   pid: number;

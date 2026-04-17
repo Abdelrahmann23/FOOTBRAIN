@@ -8,15 +8,13 @@
  * In production, use VITE_API_URL when the UI and API are on different origins.
  */
 export function buildAnalysisVideoUrl(filename: string): string {
-  if (import.meta.env.DEV) {
+  const raw = String(import.meta.env.VITE_API_URL || '').trim();
+  if (!raw) {
     return `/api/ai/analysis-output/${encodeURIComponent(filename)}`;
   }
-  const raw = import.meta.env.VITE_API_URL || '';
-  const base = raw.replace(/\/$/, '');
-  if (base.startsWith('http')) {
-    return `${base}/ai/analysis-output/${encodeURIComponent(filename)}`;
-  }
-  return `/api/ai/analysis-output/${encodeURIComponent(filename)}`;
+  const noTrailingSlash = raw.replace(/\/+$/, '');
+  const apiBase = /\/api$/i.test(noTrailingSlash) ? noTrailingSlash : `${noTrailingSlash}/api`;
+  return `${apiBase}/ai/analysis-output/${encodeURIComponent(filename)}`;
 }
 
 export function analysisVideoNeedsCrossOrigin(url: string): boolean {

@@ -27,6 +27,21 @@ def _run_demo_analysis(video_path=None):
         {"pid": 7, "team": "Team B", "dist_m": 30.4, "max_spd": 33.6, "hsr_m": 11.9, "spr": 5, "risk": 157.2, "g": 0, "a": 0, "tackles": 0, "interceptions": 0, "blocks": 0},
     ]
 
+def _open_output_writer(cv2, output_video_path, fps, frame_size):
+    """
+    OpenCV codec preference for browser playback:
+    - avc1/H264 first (best compatibility for HTML5 <video>)
+    - fallback to mp4v if H.264 encoder is unavailable on this machine
+    """
+    preferred_codecs = ("avc1", "H264", "mp4v")
+    for codec in preferred_codecs:
+        fourcc = cv2.VideoWriter_fourcc(*codec)
+        writer = cv2.VideoWriter(output_video_path, fourcc, fps, frame_size)
+        if writer.isOpened():
+            return writer, codec
+        writer.release()
+    return None, None
+
 def run_analysis(video_path, player_model_path=None, goalpost_model_path=None, pkl_path=None, output_video_path=None):
     """
     Run video analysis and return dict with playerInsights, matchScore, outputVideoFilename.
@@ -233,13 +248,12 @@ def run_analysis(video_path, player_model_path=None, goalpost_model_path=None, p
             out_dir = os.path.dirname(output_video_path)
             if out_dir and not os.path.isdir(out_dir):
                 os.makedirs(out_dir, exist_ok=True)
-            fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-            out_writer = cv2.VideoWriter(output_video_path, fourcc, fps, (W_, H_))
-            if not out_writer.isOpened():
+            out_writer, out_codec = _open_output_writer(cv2, output_video_path, fps, (W_, H_))
+            if out_writer is None:
                 print(f"[WARNING] Could not open output video writer: {output_video_path}", file=sys.stderr)
                 out_writer = None
             else:
-                print(f"[INFO] Writing output video to: {output_video_path}", file=sys.stderr)
+                print(f"[INFO] Writing output video to: {output_video_path} (codec={out_codec})", file=sys.stderr)
 
         while cap.isOpened():
             ret, frame = cap.read()
