@@ -32,6 +32,12 @@ const userSchema = new mongoose.Schema({
     enum: ['user', 'admin'],
     default: 'user',
   },
+  clubId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Club',
+    default: null,
+    index: true,
+  },
   teamInfo: {
     type: teamInfoSchema,
     default: () => ({
@@ -70,5 +76,10 @@ userSchema.methods.toJSON = function() {
   delete userObject.password;
   return userObject;
 };
+
+userSchema.index(
+  { role: 1, clubId: 1 },
+  { partialFilterExpression: { role: 'user' } }
+);
 
 export const User = mongoose.model('User', userSchema);

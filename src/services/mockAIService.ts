@@ -3,6 +3,8 @@
 
 export interface PlayerData {
   id: string;
+  globalId?: number;
+  shirtNumber?: number;
   name: string;
   age: number;
   position: string;
@@ -14,6 +16,8 @@ export interface PlayerData {
     matches: number;
     goals: number;
     assists: number;
+    tackles?: number;
+    interceptions?: number;
     minutesPlayed: number;
     injuries: number;
   };
@@ -98,6 +102,7 @@ export interface MarketValueResponse {
     similarity: number;
   }>;
   modelConfidence: number;
+  inputStats?: Record<string, unknown>;
   timestamp: string;
 }
 

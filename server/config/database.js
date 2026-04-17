@@ -5,12 +5,15 @@ dotenv.config();
 
 // Use MONGODB_URI from .env, or fall back to local MongoDB
 const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://127.0.0.1:27017/FOOTBRAIN';
+const MONGODB_DB = process.env.MONGODB_DB || 'FOOTBRAIN';
 
 export const connectDB = async () => {
   try {
-    await mongoose.connect(MONGODB_URI);
+    // Force target DB to avoid Atlas defaulting to "test".
+    await mongoose.connect(MONGODB_URI, { dbName: MONGODB_DB });
     const displayUri = MONGODB_URI.includes('mongodb+srv') ? 'MongoDB Atlas' : MONGODB_URI;
     console.log('✅ MongoDB connected successfully:', displayUri);
+    console.log(`✅ Active MongoDB database: ${mongoose.connection.db.databaseName}`);
     
     // Clean up any problematic indexes on connection
     try {
@@ -28,7 +31,17 @@ export const connectDB = async () => {
         console.log('ℹ️  Index cleanup:', error.message);
       }
     }
-    
+
+    // Legacy `teams` collection (old Team model) — removed from the app; drop if it still exists.
+    try {
+      await mongoose.connection.dropCollection('teams');
+      console.log('✅ Dropped legacy teams collection');
+    } catch (error) {
+      if (error.code !== 26 && error.codeName !== 'NamespaceNotFound') {
+        console.log('ℹ️  teams collection cleanup:', error.message);
+      }
+    }
+
     return true;
   } catch (error) {
     console.error('❌ MongoDB Atlas connection error:', error);

@@ -23,6 +23,7 @@ import {
   XCircle
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { toast } from '@/hooks/use-toast';
 
 interface ActivityLog {
   id: string;
@@ -162,6 +163,31 @@ export default function ActivityLogs() {
 
   const uniqueResources = Array.from(new Set(logs.map(log => log.resource)));
 
+  const handleExport = () => {
+    const rows = [
+      ['Timestamp', 'User', 'Email', 'Action', 'Resource', 'Status', 'IP', 'Details'],
+      ...filteredLogs.map((l) => [
+        l.timestamp,
+        l.user,
+        l.userEmail,
+        l.action,
+        l.resource,
+        l.status,
+        l.ipAddress,
+        l.details || '',
+      ]),
+    ];
+    const csv = rows.map((r) => r.map((v) => `"${String(v).replace(/"/g, '""')}"`).join(',')).join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'activity_logs.csv';
+    a.click();
+    URL.revokeObjectURL(url);
+    toast({ title: 'Export complete', description: `Exported ${filteredLogs.length} log records.` });
+  };
+
   return (
     <div className="min-h-screen bg-background">
       <Header 
@@ -203,7 +229,7 @@ export default function ActivityLogs() {
               ))}
             </SelectContent>
           </Select>
-          <Button variant="outline">
+          <Button variant="outline" onClick={handleExport}>
             <Download className="w-4 h-4 mr-2" />
             Export
           </Button>

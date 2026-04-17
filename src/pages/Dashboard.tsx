@@ -4,8 +4,57 @@ import { RiskOverview } from '@/components/dashboard/RiskOverview';
 import { RecentActivity } from '@/components/dashboard/RecentActivity';
 import { PerformanceChart } from '@/components/dashboard/PerformanceChart';
 import { Users, Heart, TrendingUp, Video, Brain, Activity } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { apiService } from '@/services/api';
+import { useAuth } from '@/contexts/AuthContext';
 
 export default function Dashboard() {
+  const navigate = useNavigate();
+  const { isAdmin } = useAuth();
+  const [stats, setStats] = useState({
+    totalPlayers: 0,
+    injuryAlerts: 0,
+    portfolioValue: '€0.0M',
+    videosAnalyzed: 0,
+    modelAccuracy: '91.2%',
+    predictionsMade: 0,
+    subtitle: '',
+  });
+
+  useEffect(() => {
+    const load = async () => {
+      if (isAdmin) {
+        const response = await apiService.getAdminDashboard();
+        if (response.data) {
+          setStats({
+            totalPlayers: response.data.totalPlayers,
+            injuryAlerts: response.data.injuryAlerts,
+            portfolioValue: response.data.totalPortfolioValue,
+            videosAnalyzed: response.data.totalMatches,
+            modelAccuracy: '91.2%',
+            predictionsMade: response.data.totalMatches,
+            subtitle: `Across ${response.data.totalClubs} clubs`,
+          });
+        }
+      } else {
+        const response = await apiService.getAnalystDashboard();
+        if (response.data) {
+          setStats({
+            totalPlayers: response.data.totalPlayers,
+            injuryAlerts: response.data.injuryAlerts,
+            portfolioValue: response.data.marketValue,
+            videosAnalyzed: response.data.videosAnalyzed,
+            modelAccuracy: '91.2%',
+            predictionsMade: response.data.totalMatches,
+            subtitle: `${response.data.totalMatches} finalized matches`,
+          });
+        }
+      }
+    };
+    load();
+  }, [isAdmin]);
+
   return (
     <div className="min-h-screen">
       <Header 
@@ -18,30 +67,28 @@ export default function Dashboard() {
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
           <StatCard
             title="Total Players"
-            value={128}
-            subtitle="Across 12 teams"
+            value={stats.totalPlayers}
+            subtitle={stats.subtitle || 'From database'}
             icon={Users}
-            trend={{ value: 8, isPositive: true }}
           />
           <StatCard
             title="Injury Alerts"
-            value={7}
-            subtitle="3 high risk"
+            value={stats.injuryAlerts}
+            subtitle="High risk players"
             icon={Heart}
             variant="danger"
           />
           <StatCard
             title="Value Predictions"
-            value="€2.4B"
-            subtitle="Total portfolio"
+            value={stats.portfolioValue}
+            subtitle="Estimated portfolio"
             icon={TrendingUp}
             variant="success"
-            trend={{ value: 12, isPositive: true }}
           />
           <StatCard
             title="Videos Analyzed"
-            value={43}
-            subtitle="This month"
+            value={stats.videosAnalyzed}
+            subtitle="From match history"
             icon={Video}
             variant="primary"
           />
@@ -51,15 +98,15 @@ export default function Dashboard() {
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <StatCard
             title="Model Accuracy"
-            value="91.2%"
+            value={stats.modelAccuracy}
             subtitle="Injury prediction"
             icon={Brain}
             variant="primary"
           />
           <StatCard
             title="Predictions Made"
-            value="2,847"
-            subtitle="Last 30 days"
+            value={stats.predictionsMade}
+            subtitle="Based on stored matches"
             icon={Activity}
           />
         </div>
@@ -82,25 +129,25 @@ export default function Dashboard() {
           <div className="stat-card">
             <h3 className="font-semibold mb-4">Quick Actions</h3>
             <div className="grid grid-cols-2 gap-3">
-              <button className="p-4 rounded-lg bg-primary/10 hover:bg-primary/20 transition-colors text-left group">
+              <button onClick={() => navigate('/injury')} className="p-4 rounded-lg bg-primary/10 hover:bg-primary/20 transition-colors text-left group">
                 <Heart className="w-6 h-6 text-primary mb-2 group-hover:scale-110 transition-transform" />
                 <p className="font-medium text-sm">Run Injury Scan</p>
                 <p className="text-xs text-muted-foreground">Analyze all players</p>
               </button>
-              <button className="p-4 rounded-lg bg-secondary hover:bg-secondary/80 transition-colors text-left group">
+              <button onClick={() => navigate('/market-value')} className="p-4 rounded-lg bg-secondary hover:bg-secondary/80 transition-colors text-left group">
                 <TrendingUp className="w-6 h-6 text-risk-low mb-2 group-hover:scale-110 transition-transform" />
                 <p className="font-medium text-sm">Update Values</p>
                 <p className="text-xs text-muted-foreground">Recalculate market</p>
               </button>
-              <button className="p-4 rounded-lg bg-secondary hover:bg-secondary/80 transition-colors text-left group">
+              <button onClick={() => navigate('/video')} className="p-4 rounded-lg bg-secondary hover:bg-secondary/80 transition-colors text-left group">
                 <Video className="w-6 h-6 text-primary mb-2 group-hover:scale-110 transition-transform" />
                 <p className="font-medium text-sm">Upload Video</p>
                 <p className="text-xs text-muted-foreground">Analyze footage</p>
               </button>
-              <button className="p-4 rounded-lg bg-secondary hover:bg-secondary/80 transition-colors text-left group">
+              <button onClick={() => navigate('/players')} className="p-4 rounded-lg bg-secondary hover:bg-secondary/80 transition-colors text-left group">
                 <Brain className="w-6 h-6 text-primary mb-2 group-hover:scale-110 transition-transform" />
-                <p className="font-medium text-sm">Retrain Models</p>
-                <p className="text-xs text-muted-foreground">Update AI</p>
+                <p className="font-medium text-sm">Open Players</p>
+                <p className="text-xs text-muted-foreground">Manage roster</p>
               </button>
             </div>
           </div>

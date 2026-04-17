@@ -4,6 +4,7 @@ import { StatCard } from '@/components/ui/stat-card';
 import { Button } from '@/components/ui/button';
 import { getAllUsers } from '@/services/userService';
 import { User } from '@/contexts/AuthContext';
+import { toast } from '@/hooks/use-toast';
 import { 
   BarChart3, 
   TrendingUp, 
@@ -28,6 +29,7 @@ const COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6'];
 export default function Analytics() {
   const [users, setUsers] = useState<User[]>([]);
   const [timeRange, setTimeRange] = useState<'week' | 'month' | 'year'>('month');
+  const [showOnlyActiveTeams, setShowOnlyActiveTeams] = useState(false);
 
   useEffect(() => {
     try {
@@ -53,6 +55,7 @@ export default function Analytics() {
   // Team performance data
   const teamPerformance = users
     .filter(u => u.teamInfo)
+    .filter(u => !showOnlyActiveTeams || (u.teamInfo?.videosAnalyzed || 0) > 0)
     .map(u => ({
       name: u.teamInfo!.name,
       players: u.teamInfo!.totalPlayers,
@@ -62,6 +65,30 @@ export default function Analytics() {
     }))
     .sort((a, b) => b.marketValue - a.marketValue)
     .slice(0, 10);
+
+  const handleExportReport = () => {
+    const rows = [
+      ['Team', 'Players', 'Injuries', 'Videos', 'MarketValueM'],
+      ...teamPerformance.map((t) => [t.name, String(t.players), String(t.injuries), String(t.videos), String(t.marketValue)]),
+    ];
+    const csv = rows.map((r) => r.join(',')).join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `analytics_${timeRange}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+    toast({ title: 'Export complete', description: 'Analytics CSV downloaded.' });
+  };
+
+  const handleToggleFilters = () => {
+    setShowOnlyActiveTeams((prev) => !prev);
+    toast({
+      title: 'Filter updated',
+      description: !showOnlyActiveTeams ? 'Showing only teams with analyzed videos.' : 'Showing all teams.',
+    });
+  };
 
   // Usage trends (mock data)
   const usageTrends = [
@@ -101,12 +128,12 @@ export default function Analytics() {
                 <SelectItem value="year">Last Year</SelectItem>
               </SelectContent>
             </Select>
-            <Button variant="outline" size="sm">
+            <Button variant="outline" size="sm" onClick={handleToggleFilters}>
               <Filter className="w-4 h-4 mr-2" />
-              More Filters
+              {showOnlyActiveTeams ? 'Active Teams Only' : 'More Filters'}
             </Button>
           </div>
-          <Button>
+          <Button onClick={handleExportReport}>
             <Download className="w-4 h-4 mr-2" />
             Export Report
           </Button>

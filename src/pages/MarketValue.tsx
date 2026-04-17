@@ -4,7 +4,8 @@ import { PlayerCard } from '@/components/ui/player-card';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import { Button } from '@/components/ui/button';
 import { 
-  type PlayerData
+  type PlayerData,
+  type MarketValueResponse
 } from '@/services/mockAIService';
 import { apiService } from '@/services/api';
 import { useAuth } from '@/contexts/AuthContext';
@@ -74,6 +75,7 @@ export default function MarketValue() {
   };
 
   const formatValue = (value: number) => {
+    if (value > 0 && value < 0.1) return `EGP ${value.toFixed(3)}M`;
     if (value >= 100) return `EGP ${value.toFixed(0)}M`;
     return `EGP ${value.toFixed(1)}M`;
   };
@@ -234,6 +236,19 @@ export default function MarketValue() {
                         )}>
                           {factor.contribution.toFixed(1)}%
                         </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Input stats used */}
+                <div className="stat-card">
+                  <h3 className="font-semibold mb-4">Player Stats Used In Prediction</h3>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
+                    {Object.entries(prediction.inputStats || {}).map(([key, value]) => (
+                      <div key={key} className="flex items-center justify-between p-3 rounded-lg bg-secondary/50">
+                        <span className="text-muted-foreground">{key.replaceAll('_', ' ')}</span>
+                        <span className="font-mono">{String(value)}</span>
                       </div>
                     ))}
                   </div>

@@ -1,4 +1,5 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { Header } from '@/components/layout/Header';
 import { PlayerCard } from '@/components/ui/player-card';
 import { Button } from '@/components/ui/button';
@@ -22,7 +23,7 @@ import {
 import type { PlayerData } from '@/services/mockAIService';
 import { apiService } from '@/services/api';
 import { useAuth } from '@/contexts/AuthContext';
-import { User, MapPin, Flag, Activity, Ruler, Weight, Plus } from 'lucide-react';
+import { User, MapPin, Flag, Activity, Ruler, Weight, Plus, Pencil, Trash2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { toast } from '@/hooks/use-toast';
 
@@ -30,10 +31,14 @@ export default function Players() {
   const [selectedPlayer, setSelectedPlayer] = useState<PlayerData | null>(null);
   const [players, setPlayers] = useState<PlayerData[]>([]);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
+  const [editingPlayerId, setEditingPlayerId] = useState<string | null>(null);
+  const [searchParams, setSearchParams] = useSearchParams();
+  const searchQuery = searchParams.get('search') ?? '';
   const { user } = useAuth();
   
   // Form state
   const [formData, setFormData] = useState({
+    shirtNumber: '',
     name: '',
     age: '',
     position: '',
@@ -42,6 +47,8 @@ export default function Players() {
     matches: '',
     goals: '',
     assists: '',
+    tackles: '',
+    interceptions: '',
     minutesPlayed: '',
     injuries: '',
     height: '',
@@ -86,6 +93,7 @@ export default function Players() {
       }));
     } else if (!isDialogOpen) {
       setFormData({
+        shirtNumber: '',
         name: '',
         age: '',
         position: '',
@@ -94,6 +102,8 @@ export default function Players() {
         matches: '',
         goals: '',
         assists: '',
+        tackles: '',
+        interceptions: '',
         minutesPlayed: '',
         injuries: '',
         height: '',
@@ -105,7 +115,7 @@ export default function Players() {
     }
   }, [isDialogOpen, user]);
 
-  const handleAddPlayer = async () => {
+  const handleSavePlayer = async () => {
     if (!user?.email) {
       toast({
         title: 'Error',
@@ -116,10 +126,10 @@ export default function Players() {
     }
 
     // Validate required fields
-    if (!formData.name || !formData.age || !formData.position || !formData.team || !formData.nationality) {
+    if (!formData.name || !formData.age || !formData.position || !formData.team || !formData.nationality || !formData.shirtNumber) {
       toast({
         title: 'Validation Error',
-        description: 'Please fill in all required fields (Name, Age, Position, Team, Nationality)',
+        description: 'Please fill in all required fields (T-shirt no, Name, Age, Position, Team, Nationality)',
         variant: 'destructive',
       });
       return;
@@ -131,10 +141,14 @@ export default function Players() {
         age: parseInt(formData.age) || 0,
         position: formData.position,
         nationality: formData.nationality,
+        globalId: parseInt(formData.shirtNumber) || 0,
+        shirtNumber: parseInt(formData.shirtNumber) || 0,
         stats: {
           matches: parseInt(formData.matches) || 0,
           goals: parseInt(formData.goals) || 0,
           assists: parseInt(formData.assists) || 0,
+          tackles: parseInt(formData.tackles) || 0,
+          interceptions: parseInt(formData.interceptions) || 0,
           minutesPlayed: parseInt(formData.minutesPlayed) || 0,
           injuries: parseInt(formData.injuries) || 0,
         },
@@ -147,7 +161,9 @@ export default function Players() {
         },
       };
 
-      const response = await apiService.createPlayer(payload);
+      const response = editingPlayerId
+        ? await apiService.updatePlayer(editingPlayerId, payload)
+        : await apiService.createPlayer(payload);
 
       if (response.error || !response.data) {
         throw new Error(response.error || 'Failed to create player');
@@ -156,12 +172,13 @@ export default function Players() {
       const newPlayer = response.data.player as PlayerData;
 
       toast({
-        title: 'Player added',
-        description: `${newPlayer.name} has been successfully added to your team.`,
+        title: editingPlayerId ? 'Player updated' : 'Player added',
+        description: `${newPlayer.name} has been successfully ${editingPlayerId ? 'updated' : 'added'} to your team.`,
       });
 
       // Reset form
       setFormData({
+        shirtNumber: '',
         name: '',
         age: '',
         position: '',
@@ -170,6 +187,8 @@ export default function Players() {
         matches: '',
         goals: '',
         assists: '',
+        tackles: '',
+        interceptions: '',
         minutesPlayed: '',
         injuries: '',
         height: '',
@@ -179,9 +198,18 @@ export default function Players() {
         strength: '',
       });
 
+      setEditingPlayerId(null);
       setIsDialogOpen(false);
-      // Refresh players list
-      setPlayers(prev => [...prev, newPlayer]);
+      setPlayers(prev => {
+        const idx = prev.findIndex(p => p.id === newPlayer.id);
+        if (idx >= 0) {
+          const copy = [...prev];
+          copy[idx] = newPlayer;
+          return copy;
+        }
+        return [...prev, newPlayer];
+      });
+      setSelectedPlayer(newPlayer);
     } catch (error) {
       toast({
         title: 'Error',
@@ -190,6 +218,66 @@ export default function Players() {
       });
     }
   };
+
+  const openEditDialog = () => {
+    if (!selectedPlayer) return;
+    setEditingPlayerId(selectedPlayer.id);
+    setFormData({
+      shirtNumber: String(selectedPlayer.shirtNumber ?? selectedPlayer.globalId ?? ''),
+      name: selectedPlayer.name || '',
+      age: String(selectedPlayer.age || ''),
+      position: selectedPlayer.position || '',
+      team: selectedPlayer.team || '',
+      nationality: selectedPlayer.nationality || '',
+      matches: String(selectedPlayer.stats.matches || 0),
+      goals: String(selectedPlayer.stats.goals || 0),
+      assists: String(selectedPlayer.stats.assists || 0),
+      tackles: String(selectedPlayer.stats.tackles || 0),
+      interceptions: String(selectedPlayer.stats.interceptions || 0),
+      minutesPlayed: String(selectedPlayer.stats.minutesPlayed || 0),
+      injuries: String(selectedPlayer.stats.injuries || 0),
+      height: String(selectedPlayer.physical.height || 0),
+      weight: String(selectedPlayer.physical.weight || 0),
+      sprintSpeed: String(selectedPlayer.physical.sprintSpeed || 0),
+      stamina: String(selectedPlayer.physical.stamina || 0),
+      strength: String(selectedPlayer.physical.strength || 0),
+    });
+    setIsDialogOpen(true);
+  };
+
+  const handleDeleteSelected = async () => {
+    if (!selectedPlayer) return;
+    if (!window.confirm(`Delete ${selectedPlayer.name}? This cannot be undone.`)) return;
+    const response = await apiService.deletePlayer(selectedPlayer.id);
+    if (response.error) {
+      toast({ title: 'Error', description: response.error, variant: 'destructive' });
+      return;
+    }
+    setPlayers(prev => prev.filter(p => p.id !== selectedPlayer.id));
+    setSelectedPlayer(null);
+    toast({ title: 'Player deleted', description: `${selectedPlayer.name} was deleted.` });
+  };
+
+  const filteredPlayers = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) return players;
+    return players.filter((p) => {
+      const name = String(p.name || '').toLowerCase();
+      const position = String(p.position || '').toLowerCase();
+      const team = String(p.team || '').toLowerCase();
+      const shirt = String(p.shirtNumber ?? p.globalId ?? '');
+      const nationality = String(p.nationality || '').toLowerCase();
+      const id = String(p.id || '').toLowerCase();
+      return (
+        name.includes(q) ||
+        position.includes(q) ||
+        team.includes(q) ||
+        nationality.includes(q) ||
+        shirt.includes(q) ||
+        id.includes(q)
+      );
+    });
+  }, [players, searchQuery]);
 
   return (
     <div className="min-h-screen">
@@ -204,18 +292,38 @@ export default function Players() {
             <h2 className="text-2xl font-bold">My Team Players</h2>
             <p className="text-muted-foreground">Manage your team's player database</p>
           </div>
-          <Button onClick={() => setIsDialogOpen(true)} className="group">
-            <Plus className="w-4 h-4 mr-2" />
-            Add Player
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button onClick={openEditDialog} disabled={!selectedPlayer} variant="outline">
+              <Pencil className="w-4 h-4 mr-2" />
+              Edit
+            </Button>
+            <Button onClick={handleDeleteSelected} disabled={!selectedPlayer} variant="destructive">
+              <Trash2 className="w-4 h-4 mr-2" />
+              Delete
+            </Button>
+            <Button
+              onClick={() => {
+                setEditingPlayerId(null);
+                setIsDialogOpen(true);
+              }}
+              className="group"
+            >
+              <Plus className="w-4 h-4 mr-2" />
+              Add Player
+            </Button>
+          </div>
         </div>
+
+        <p className="text-sm text-muted-foreground mb-4">
+          Use the search bar in the header to filter players by name, team, position, or shirt number.
+        </p>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           {/* Player List */}
           <div className="lg:col-span-2">
-            {players.length > 0 ? (
+            {filteredPlayers.length > 0 ? (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {players.map((player) => (
+                {filteredPlayers.map((player) => (
                   <PlayerCard
                     key={player.id}
                     player={player}
@@ -227,8 +335,10 @@ export default function Players() {
             ) : (
               <div className="stat-card text-center py-12">
                 <User className="w-16 h-16 mx-auto mb-4 text-muted-foreground opacity-50" />
-                <h3 className="text-lg font-semibold mb-2">No players yet</h3>
-                <p className="text-muted-foreground mb-4">Get started by adding your first player</p>
+                <h3 className="text-lg font-semibold mb-2">{players.length === 0 ? 'No players yet' : 'No players match your search'}</h3>
+                <p className="text-muted-foreground mb-4">
+                  {players.length === 0 ? 'Get started by adding your first player' : 'Try a different name, position, or shirt number.'}
+                </p>
                 <Button onClick={() => setIsDialogOpen(true)}>
                   <Plus className="w-4 h-4 mr-2" />
                   Add Player
@@ -250,6 +360,7 @@ export default function Players() {
                     <div>
                       <h2 className="font-bold text-xl">{selectedPlayer.name}</h2>
                       <p className="text-primary font-medium">{selectedPlayer.position}</p>
+                      <p className="text-xs text-muted-foreground">T-shirt #{selectedPlayer.shirtNumber ?? selectedPlayer.globalId ?? '-'}</p>
                       <div className="flex items-center gap-2 text-sm text-muted-foreground mt-1">
                         <MapPin className="w-3.5 h-3.5" />
                         {selectedPlayer.team}
@@ -294,6 +405,14 @@ export default function Players() {
                     <div className="flex justify-between items-center">
                       <span className="text-muted-foreground text-sm">Minutes Played</span>
                       <span className="font-mono font-medium">{selectedPlayer.stats.minutesPlayed}</span>
+                    </div>
+                    <div className="flex justify-between items-center">
+                      <span className="text-muted-foreground text-sm">Tackles</span>
+                      <span className="font-mono font-medium">{selectedPlayer.stats.tackles ?? 0}</span>
+                    </div>
+                    <div className="flex justify-between items-center">
+                      <span className="text-muted-foreground text-sm">Interceptions</span>
+                      <span className="font-mono font-medium">{selectedPlayer.stats.interceptions ?? 0}</span>
                     </div>
                     <div className="flex justify-between items-center">
                       <span className="text-muted-foreground text-sm">Injuries</span>
@@ -365,16 +484,33 @@ export default function Players() {
         </div>
 
         {/* Add Player Dialog */}
-        <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
+        <Dialog
+          open={isDialogOpen}
+          onOpenChange={(open) => {
+            setIsDialogOpen(open);
+            if (!open) setEditingPlayerId(null);
+          }}
+        >
           <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
             <DialogHeader>
-              <DialogTitle>Add New Player</DialogTitle>
+              <DialogTitle>{editingPlayerId ? 'Edit Player' : 'Add New Player'}</DialogTitle>
               <DialogDescription>
                 Enter player information to add them to your team database.
               </DialogDescription>
             </DialogHeader>
             <div className="grid gap-4 py-4">
               <div className="grid grid-cols-2 gap-4">
+                <div className="grid gap-2">
+                  <Label htmlFor="shirtNumber">T-shirt Number (Global ID) *</Label>
+                  <Input
+                    id="shirtNumber"
+                    type="number"
+                    placeholder="15"
+                    value={formData.shirtNumber}
+                    onChange={(e) => setFormData({ ...formData, shirtNumber: e.target.value })}
+                    required
+                  />
+                </div>
                 <div className="grid gap-2">
                   <Label htmlFor="name">Full Name *</Label>
                   <Input
@@ -481,6 +617,26 @@ export default function Players() {
                     />
                   </div>
                   <div className="grid gap-2">
+                    <Label htmlFor="tackles">Tackles</Label>
+                    <Input
+                      id="tackles"
+                      type="number"
+                      placeholder="68"
+                      value={formData.tackles}
+                      onChange={(e) => setFormData({ ...formData, tackles: e.target.value })}
+                    />
+                  </div>
+                  <div className="grid gap-2">
+                    <Label htmlFor="interceptions">Interceptions</Label>
+                    <Input
+                      id="interceptions"
+                      type="number"
+                      placeholder="54"
+                      value={formData.interceptions}
+                      onChange={(e) => setFormData({ ...formData, interceptions: e.target.value })}
+                    />
+                  </div>
+                  <div className="grid gap-2">
                     <Label htmlFor="injuries">Injuries</Label>
                     <Input
                       id="injuries"
@@ -559,8 +715,8 @@ export default function Players() {
               <Button variant="outline" onClick={() => setIsDialogOpen(false)}>
                 Cancel
               </Button>
-              <Button onClick={handleAddPlayer}>
-                Add Player
+              <Button onClick={handleSavePlayer}>
+                {editingPlayerId ? 'Save Changes' : 'Add Player'}
               </Button>
             </DialogFooter>
           </DialogContent>

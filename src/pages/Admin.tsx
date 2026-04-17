@@ -28,6 +28,7 @@ import { cn } from '@/lib/utils';
 export default function Admin() {
   const [users, setUsers] = useState<User[]>([]);
   const [totalPlayersFromDb, setTotalPlayersFromDb] = useState<number | null>(null);
+  const [dashboardMetrics, setDashboardMetrics] = useState<{ injuryAlerts: number; totalMatches: number; totalClubs: number } | null>(null);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingUser, setEditingUser] = useState<User | null>(null);
   const [formData, setFormData] = useState({
@@ -75,17 +76,32 @@ export default function Admin() {
     }
   };
 
+  const loadDashboardMetrics = async () => {
+    try {
+      const response = await apiService.getAdminDashboard();
+      if (response.error || !response.data) return;
+      setDashboardMetrics({
+        injuryAlerts: response.data.injuryAlerts,
+        totalMatches: response.data.totalMatches,
+        totalClubs: response.data.totalClubs,
+      });
+    } catch (error) {
+      console.error('Error loading dashboard metrics:', error);
+    }
+  };
+
   useEffect(() => {
     loadUsers();
     loadStats();
+    loadDashboardMetrics();
   }, []);
 
   // Filter out admin users for display
   const regularUsers = users.filter(u => u.role === 'user');
   const totalUsers = regularUsers.length;
   const totalPlayers = regularUsers.reduce((sum, u) => sum + (u.teamInfo?.totalPlayers || 0), 0);
-  const totalInjuries = regularUsers.reduce((sum, u) => sum + (u.teamInfo?.injuryAlerts || 0), 0);
-  const totalVideos = regularUsers.reduce((sum, u) => sum + (u.teamInfo?.videosAnalyzed || 0), 0);
+  const totalInjuries = dashboardMetrics?.injuryAlerts ?? regularUsers.reduce((sum, u) => sum + (u.teamInfo?.injuryAlerts || 0), 0);
+  const totalVideos = dashboardMetrics?.totalMatches ?? regularUsers.reduce((sum, u) => sum + (u.teamInfo?.videosAnalyzed || 0), 0);
 
   const handleOpenDialog = (user?: User) => {
     if (user) {
@@ -272,7 +288,7 @@ export default function Admin() {
           <StatCard
             title="Videos Analyzed"
             value={totalVideos}
-            subtitle="This month"
+            subtitle={dashboardMetrics ? `Across ${dashboardMetrics.totalClubs} clubs` : 'This month'}
             icon={Video}
             variant="success"
           />

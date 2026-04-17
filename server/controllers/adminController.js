@@ -1,13 +1,17 @@
 import { User } from '../models/User.js';
-import { Team } from '../models/Team.js';
+import { Club } from '../models/Team.js';
 import { Player } from '../models/Player.js';
+import { Match } from '../models/Match.js';
+import { ensureClubByName } from '../services/club.service.js';
 
 const ADMIN_EMAIL = process.env.ADMIN_EMAIL || 'admin@footbrain.com';
 
 const mapUser = (userDoc) => ({
+  id: String(userDoc._id),
   email: userDoc.email,
   name: userDoc.name,
   role: userDoc.role,
+  clubId: userDoc.clubId ? String(userDoc.clubId) : null,
   teamInfo: userDoc.teamInfo || undefined,
 });
 
@@ -46,14 +50,18 @@ export const listUsers = async (req, res) => {
 
 export const stats = async (req, res) => {
   try {
-    const [totalUsers, totalPlayers] = await Promise.all([
+    const [totalUsers, totalPlayers, totalClubs, totalMatches] = await Promise.all([
       User.countDocuments({ role: 'user' }),
       Player.countDocuments({}),
+      Club.countDocuments({}),
+      Match.countDocuments({}),
     ]);
 
     res.json({
       totalUsers,
       totalPlayers,
+      totalClubs,
+      totalMatches,
     });
   } catch (error) {
     console.error('Error fetching admin stats:', error);
@@ -111,20 +119,9 @@ export const createUser = async (req, res) => {
 
     await user.save();
 
-    // Ensure a corresponding team exists in the teams collection
-    const teamNameTrimmed = String(teamName).trim();
-    await Team.findOneAndUpdate(
-      { owner: user._id, name: teamNameTrimmed },
-      {
-        $setOnInsert: {
-          totalPlayers: 0,
-          injuryAlerts: 0,
-          marketValue: '€0M',
-          videosAnalyzed: 0,
-        },
-      },
-      { upsert: true, new: true }
-    );
+    const club = await ensureClubByName(String(teamName).trim(), user._id);
+    user.clubId = club._id;
+    await user.save();
 
     res.status(201).json({
       message: 'User created successfully',
@@ -166,6 +163,8 @@ export const updateUser = async (req, res) => {
         user.teamInfo = {};
       }
       user.teamInfo.name = teamName.trim();
+      const club = await ensureClubByName(teamName.trim(), user._id);
+      user.clubId = club._id;
     }
 
     if (password && typeof password === 'string') {
@@ -208,21 +207,21 @@ export const deleteUser = async (req, res) => {
       return res.status(404).json({ error: 'User not found' });
     }
 
-    // Cascade delete: remove this user's teams and players
+    // Cascade delete: remove this user's players and matches
     try {
       await Promise.all([
-        Team.deleteMany({ owner: user._id }),
         Player.deleteMany({ user: user._id }),
+        Match.deleteMany({ createdBy: user._id }),
       ]);
     } catch (cascadeError) {
-      console.error('Error deleting related teams/players:', cascadeError);
+      console.error('Error deleting related players/matches:', cascadeError);
       return res.status(500).json({
-        error: 'User deleted, but failed to remove related teams/players',
+        error: 'User deleted, but failed to remove related players/matches',
         details: cascadeError.message,
       });
     }
 
-    res.json({ message: 'User, team(s), and players deleted successfully' });
+    res.json({ message: 'User, players, and matches deleted successfully' });
   } catch (error) {
     console.error('Error deleting user for admin:', error);
     res.status(500).json({

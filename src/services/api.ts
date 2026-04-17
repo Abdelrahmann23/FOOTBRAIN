@@ -2,6 +2,22 @@
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
 
+export interface PlayerInsight {
+  pid: number;
+  team: string;
+  dist_m: number;
+  max_spd: number;
+  hsr_m: number;
+  spr: number;
+  risk: number;
+  g: number;
+  a: number;
+  /** CV defensive heuristics from integrated pipeline */
+  tackles?: number;
+  interceptions?: number;
+  blocks?: number;
+}
+
 interface ApiResponse<T> {
   data?: T;
   error?: string;
@@ -104,6 +120,7 @@ class ApiService {
       valueFactors: Array<{ factor: string; contribution: number; trend: 'up' | 'down' | 'stable' }>;
       comparablePlayers: Array<{ name: string; value: number; similarity: number }>;
       modelConfidence: number;
+      inputStats?: Record<string, unknown>;
       timestamp: string;
     }>('/ai/predict/market-value', {
       method: 'POST',
@@ -111,17 +128,18 @@ class ApiService {
     });
   }
 
-  /** Injury prediction uses physical attributes only (height, weight, age, BMI, hamstring, sprint speed, training hours). */
+  /** Injury prediction uses match workload attributes (+ BMI computed from height/weight backend-side). */
   async predictInjury(payload: {
     playerId?: string;
     physical: {
       age: number;
       height: number;
       weight: number;
-      bmi?: number;
-      hamstring: number;
-      sprint_speed: number;
-      training_hours: number;
+      minutes_played: number;
+      distance_covered_km: number;
+      max_speed_kmh: number;
+      sprint_count: number;
+      hsr_m: number;
     };
   }) {
     return this.request<{
@@ -138,6 +156,52 @@ class ApiService {
     });
   }
 
+  /** Video analysis: upload match video, get player insights and match score. */
+  async analyzeVideo(file: File) {
+    const token = this.getAuthToken();
+    const form = new FormData();
+    form.append('video', file);
+    const headers: HeadersInit = {};
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+    const response = await fetch(`${API_BASE_URL}/ai/analyze-video`, {
+      method: 'POST',
+      headers,
+      body: form,
+    });
+    const contentType = response.headers.get('content-type');
+    const data = contentType?.includes('application/json') ? await response.json() : {};
+    if (!response.ok) {
+      return { error: data.error || data.details || response.statusText };
+    }
+    return {
+      data: data as {
+        success: boolean;
+        playerInsights: PlayerInsight[];
+        matchScore?: Record<string, number>;
+        outputVideoFilename?: string | null;
+      },
+    };
+  }
+
+  /** Create a finalized match from CV output and map temp PIDs to club global IDs. */
+  async commitVideoAnalysis(payload: {
+    title: string;
+    matchDate: string;
+    opponent?: string;
+    rawInsights: PlayerInsight[];
+    mappings: Array<{ tempTrackingId: number; globalId: number }>;
+    analysisOutputFilename?: string | null;
+  }) {
+    return this.request<{
+      message: string;
+      match: unknown;
+      upsertedStats: number;
+    }>('/matches/commit-video-analysis', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  }
+
   // Player endpoints
   async getMyPlayers() {
     return this.request<{ players: any[] }>('/players', {
@@ -149,6 +213,26 @@ class ApiService {
     return this.request<{ player: any }>('/players', {
       method: 'POST',
       body: JSON.stringify(player),
+    });
+  }
+
+  async updatePlayer(playerId: string, updates: any) {
+    return this.request<{ player: any; message: string }>(`/players/${playerId}`, {
+      method: 'PUT',
+      body: JSON.stringify(updates),
+    });
+  }
+
+  async deletePlayer(playerId: string) {
+    return this.request<{ message: string }>(`/players/${playerId}`, {
+      method: 'DELETE',
+    });
+  }
+
+  async bulkSetupPlayers(players: any[]) {
+    return this.request<{ players: any[]; count: number; message: string }>('/players/setup-bulk', {
+      method: 'POST',
+      body: JSON.stringify({ players }),
     });
   }
 
@@ -192,8 +276,134 @@ class ApiService {
   }
 
   async getAdminStats() {
-    return this.request<{ totalUsers: number; totalPlayers: number }>('/admin/stats', {
+    return this.request<{ totalUsers: number; totalPlayers: number; totalClubs: number; totalMatches: number }>('/admin/stats', {
       method: 'GET',
+    });
+  }
+
+  async getAnalystDashboard() {
+    return this.request<{
+      totalPlayers: number;
+      totalMatches: number;
+      videosAnalyzed: number;
+      injuryAlerts: number;
+      riskHigh: number;
+      avgRisk: number;
+      avgDistance: number;
+      marketValue: string;
+    }>('/dashboard/analyst', { method: 'GET' });
+  }
+
+  async getAdminDashboard() {
+    return this.request<{
+      totalUsers: number;
+      totalPlayers: number;
+      totalMatches: number;
+      totalClubs: number;
+      injuryAlerts: number;
+      totalPortfolioValue: string;
+    }>('/dashboard/admin', { method: 'GET' });
+  }
+
+  async getPlayerReport(globalId: number) {
+    return this.request<any>(`/reports/players/${globalId}`, { method: 'GET' });
+  }
+
+  async getPlayerTrends(globalId: number, lastN = 6) {
+    return this.request<any>(`/reports/players/${globalId}/trends?lastN=${lastN}`, { method: 'GET' });
+  }
+
+  async getMatches() {
+    return this.request<{ matches: any[] }>('/matches', { method: 'GET' });
+  }
+
+  async createMatch(payload: { title: string; opponent?: string; matchDate: string; videoPath?: string }) {
+    return this.request<{ match: any }>('/matches', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  }
+
+  async saveMatchRawInsights(matchId: string, rawInsights: any[]) {
+    return this.request<{ message: string; count: number }>(`/matches/${matchId}/raw-insights`, {
+      method: 'POST',
+      body: JSON.stringify({ rawInsights }),
+    });
+  }
+
+  async mapMatchIds(matchId: string, mappings: Array<{ tempTrackingId: number; globalId: number }>) {
+    return this.request<{ message: string; count: number }>(`/matches/${matchId}/map-ids`, {
+      method: 'POST',
+      body: JSON.stringify({ mappings }),
+    });
+  }
+
+  async finalizeMatch(matchId: string) {
+    return this.request<{ message: string; upsertedStats: number }>(`/matches/${matchId}/finalize`, {
+      method: 'POST',
+    });
+  }
+
+  // Account/Profile endpoints
+  async getMyProfile() {
+    return this.request<{
+      user: unknown;
+      preferences: {
+        privacy: { profileVisibility: 'private' | 'team' | 'public'; activityTracking: boolean; dataSharing: boolean };
+        notifications: { emailAlerts: boolean; injuryRiskAlerts: boolean; weeklySummary: boolean; matchInsightsReady: boolean };
+      };
+      teamSettings: { preferredFormation: string; playStyle: string; trainingFocus: string; notes: string };
+    }>('/account/me', { method: 'GET' });
+  }
+
+  async updateMyProfile(name: string) {
+    return this.request<{ message: string; user: unknown }>('/account/me', {
+      method: 'PUT',
+      body: JSON.stringify({ name }),
+    });
+  }
+
+  async changeMyEmail(currentPassword: string, newEmail: string) {
+    return this.request<{ message: string; user: unknown }>('/account/me/email', {
+      method: 'PUT',
+      body: JSON.stringify({ currentPassword, newEmail }),
+    });
+  }
+
+  async changeMyPassword(currentPassword: string, newPassword: string) {
+    return this.request<{ message: string }>('/account/me/password', {
+      method: 'PUT',
+      body: JSON.stringify({ currentPassword, newPassword }),
+    });
+  }
+
+  async updateMyPreferences(payload: {
+    privacy?: { profileVisibility: 'private' | 'team' | 'public'; activityTracking: boolean; dataSharing: boolean };
+    notifications?: { emailAlerts: boolean; injuryRiskAlerts: boolean; weeklySummary: boolean; matchInsightsReady: boolean };
+  }) {
+    return this.request<{ message: string; preferences: unknown }>('/account/me/preferences', {
+      method: 'PUT',
+      body: JSON.stringify(payload),
+    });
+  }
+
+  async updateTeamSettings(payload: { preferredFormation: string; playStyle: string; trainingFocus: string; notes: string }) {
+    return this.request<{ message: string; settings: unknown }>('/account/me/team-settings', {
+      method: 'PUT',
+      body: JSON.stringify(payload),
+    });
+  }
+
+  async queueReportEmail(payload: {
+    templateId: string;
+    format: 'pdf' | 'excel' | 'csv';
+    dateRange: 'week' | 'month' | 'quarter' | 'year' | 'custom';
+    startDate?: string;
+    endDate?: string;
+  }) {
+    return this.request<{ message: string; requestId: string; status: string }>('/reports/email', {
+      method: 'POST',
+      body: JSON.stringify(payload),
     });
   }
 }

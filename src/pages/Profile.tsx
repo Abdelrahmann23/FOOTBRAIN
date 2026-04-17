@@ -6,6 +6,13 @@ import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Button } from '@/components/ui/button';
+import { useNavigate } from 'react-router-dom';
+import { toast } from '@/hooks/use-toast';
+import { useEffect, useState } from 'react';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
+import { apiService } from '@/services/api';
 import { 
   User, 
   Mail, 
@@ -22,6 +29,28 @@ import {
 
 export default function Profile() {
   const { user } = useAuth();
+  const navigate = useNavigate();
+  const [profileName, setProfileName] = useState(user?.name || '');
+  const [emailForm, setEmailForm] = useState({ currentPassword: '', newEmail: '' });
+  const [passwordForm, setPasswordForm] = useState({ currentPassword: '', newPassword: '' });
+  const [privacyForm, setPrivacyForm] = useState({
+    profileVisibility: 'team' as 'private' | 'team' | 'public',
+    activityTracking: true,
+    dataSharing: false,
+  });
+  const [notificationForm, setNotificationForm] = useState({
+    emailAlerts: true,
+    injuryRiskAlerts: true,
+    weeklySummary: true,
+    matchInsightsReady: true,
+  });
+  const [teamSettingsForm, setTeamSettingsForm] = useState({
+    preferredFormation: '',
+    playStyle: '',
+    trainingFocus: '',
+    notes: '',
+  });
+  const [openDialog, setOpenDialog] = useState<null | 'edit' | 'email' | 'password' | 'privacy' | 'notify' | 'team'>(null);
 
   const getInitials = (name: string) => {
     return name
@@ -38,6 +67,80 @@ export default function Profile() {
     { id: 3, action: 'Market value updated', target: 'Team portfolio', time: '1 day ago', type: 'success' },
     { id: 4, action: 'Video analyzed', target: 'Match footage', time: '2 days ago', type: 'info' },
   ];
+
+  useEffect(() => {
+    if (!user) return;
+    setProfileName(user.name || '');
+    apiService.getMyProfile().then((response) => {
+      if (!response.data) return;
+      if (response.data.preferences?.privacy) setPrivacyForm(response.data.preferences.privacy);
+      if (response.data.preferences?.notifications) setNotificationForm(response.data.preferences.notifications);
+      if (response.data.teamSettings) setTeamSettingsForm(response.data.teamSettings);
+    });
+  }, [user]);
+
+  const handleSaveProfile = async () => {
+    const response = await apiService.updateMyProfile(profileName);
+    if (response.error) {
+      toast({ title: 'Update failed', description: response.error, variant: 'destructive' });
+      return;
+    }
+    toast({ title: 'Profile updated', description: 'Your name was updated successfully.' });
+    setOpenDialog(null);
+    window.location.reload();
+  };
+
+  const handleSaveEmail = async () => {
+    const response = await apiService.changeMyEmail(emailForm.currentPassword, emailForm.newEmail);
+    if (response.error) {
+      toast({ title: 'Email update failed', description: response.error, variant: 'destructive' });
+      return;
+    }
+    toast({ title: 'Email updated', description: 'Please use your new email on next login.' });
+    setOpenDialog(null);
+    window.location.reload();
+  };
+
+  const handleSavePassword = async () => {
+    const response = await apiService.changeMyPassword(passwordForm.currentPassword, passwordForm.newPassword);
+    if (response.error) {
+      toast({ title: 'Password update failed', description: response.error, variant: 'destructive' });
+      return;
+    }
+    toast({ title: 'Password updated', description: 'Your password has been changed.' });
+    setOpenDialog(null);
+    setPasswordForm({ currentPassword: '', newPassword: '' });
+  };
+
+  const handleSavePrivacy = async () => {
+    const response = await apiService.updateMyPreferences({ privacy: privacyForm });
+    if (response.error) {
+      toast({ title: 'Privacy update failed', description: response.error, variant: 'destructive' });
+      return;
+    }
+    toast({ title: 'Privacy settings saved' });
+    setOpenDialog(null);
+  };
+
+  const handleSaveNotifications = async () => {
+    const response = await apiService.updateMyPreferences({ notifications: notificationForm });
+    if (response.error) {
+      toast({ title: 'Notification update failed', description: response.error, variant: 'destructive' });
+      return;
+    }
+    toast({ title: 'Notification settings saved' });
+    setOpenDialog(null);
+  };
+
+  const handleSaveTeamSettings = async () => {
+    const response = await apiService.updateTeamSettings(teamSettingsForm);
+    if (response.error) {
+      toast({ title: 'Team settings update failed', description: response.error, variant: 'destructive' });
+      return;
+    }
+    toast({ title: 'Team settings updated' });
+    setOpenDialog(null);
+  };
 
   return (
     <div className="min-h-screen">
@@ -86,7 +189,7 @@ export default function Profile() {
                     </div>
                   </div>
                 </div>
-                <Button variant="outline" className="gap-2">
+                <Button variant="outline" className="gap-2" onClick={() => setOpenDialog('edit')}>
                   <Edit className="w-4 h-4" />
                   Edit Profile
                 </Button>
@@ -166,16 +269,16 @@ export default function Profile() {
                       Account Settings
                     </h3>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      <Button variant="outline" className="justify-start">
+                      <Button variant="outline" className="justify-start" onClick={() => setOpenDialog('password')}>
                         Change Password
                       </Button>
-                      <Button variant="outline" className="justify-start">
+                      <Button variant="outline" className="justify-start" onClick={() => setOpenDialog('email')}>
                         Update Email
                       </Button>
-                      <Button variant="outline" className="justify-start">
+                      <Button variant="outline" className="justify-start" onClick={() => setOpenDialog('privacy')}>
                         Privacy Settings
                       </Button>
-                      <Button variant="outline" className="justify-start">
+                      <Button variant="outline" className="justify-start" onClick={() => setOpenDialog('notify')}>
                         Notification Preferences
                       </Button>
                     </div>
@@ -235,10 +338,10 @@ export default function Profile() {
                     </div>
                     <Separator />
                     <div className="flex gap-4">
-                      <Button variant="default">
+                      <Button variant="default" onClick={() => navigate('/players')}>
                         Manage Players
                       </Button>
-                      <Button variant="outline">
+                      <Button variant="outline" onClick={() => setOpenDialog('team')}>
                         Team Settings
                       </Button>
                     </div>
@@ -297,6 +400,79 @@ export default function Profile() {
           </Tabs>
         </div>
       </div>
+      <Dialog open={openDialog === 'edit'} onOpenChange={(o) => !o && setOpenDialog(null)}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>Edit Profile</DialogTitle><DialogDescription>Update your display name.</DialogDescription></DialogHeader>
+          <Label>Name</Label>
+          <Input value={profileName} onChange={(e) => setProfileName(e.target.value)} />
+          <DialogFooter><Button variant="outline" onClick={() => setOpenDialog(null)}>Cancel</Button><Button onClick={handleSaveProfile}>Save</Button></DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={openDialog === 'email'} onOpenChange={(o) => !o && setOpenDialog(null)}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>Update Email</DialogTitle><DialogDescription>Confirm your password to change email.</DialogDescription></DialogHeader>
+          <Label>Current Password</Label>
+          <Input type="password" value={emailForm.currentPassword} onChange={(e) => setEmailForm((p) => ({ ...p, currentPassword: e.target.value }))} />
+          <Label>New Email</Label>
+          <Input type="email" value={emailForm.newEmail} onChange={(e) => setEmailForm((p) => ({ ...p, newEmail: e.target.value }))} />
+          <DialogFooter><Button variant="outline" onClick={() => setOpenDialog(null)}>Cancel</Button><Button onClick={handleSaveEmail}>Save</Button></DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={openDialog === 'password'} onOpenChange={(o) => !o && setOpenDialog(null)}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>Change Password</DialogTitle><DialogDescription>Set a new password for your account.</DialogDescription></DialogHeader>
+          <Label>Current Password</Label>
+          <Input type="password" value={passwordForm.currentPassword} onChange={(e) => setPasswordForm((p) => ({ ...p, currentPassword: e.target.value }))} />
+          <Label>New Password</Label>
+          <Input type="password" value={passwordForm.newPassword} onChange={(e) => setPasswordForm((p) => ({ ...p, newPassword: e.target.value }))} />
+          <DialogFooter><Button variant="outline" onClick={() => setOpenDialog(null)}>Cancel</Button><Button onClick={handleSavePassword}>Save</Button></DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={openDialog === 'privacy'} onOpenChange={(o) => !o && setOpenDialog(null)}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>Privacy Settings</DialogTitle><DialogDescription>Manage visibility and data sharing.</DialogDescription></DialogHeader>
+          <Label>Profile Visibility</Label>
+          <Input value={privacyForm.profileVisibility} onChange={(e) => setPrivacyForm((p) => ({ ...p, profileVisibility: e.target.value as 'private' | 'team' | 'public' }))} />
+          <Label>Activity Tracking (true/false)</Label>
+          <Input value={String(privacyForm.activityTracking)} onChange={(e) => setPrivacyForm((p) => ({ ...p, activityTracking: e.target.value.toLowerCase() === 'true' }))} />
+          <Label>Data Sharing (true/false)</Label>
+          <Input value={String(privacyForm.dataSharing)} onChange={(e) => setPrivacyForm((p) => ({ ...p, dataSharing: e.target.value.toLowerCase() === 'true' }))} />
+          <DialogFooter><Button variant="outline" onClick={() => setOpenDialog(null)}>Cancel</Button><Button onClick={handleSavePrivacy}>Save</Button></DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={openDialog === 'notify'} onOpenChange={(o) => !o && setOpenDialog(null)}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>Notification Preferences</DialogTitle><DialogDescription>Configure alert channels and summaries.</DialogDescription></DialogHeader>
+          <Label>Email Alerts (true/false)</Label>
+          <Input value={String(notificationForm.emailAlerts)} onChange={(e) => setNotificationForm((p) => ({ ...p, emailAlerts: e.target.value.toLowerCase() === 'true' }))} />
+          <Label>Injury Risk Alerts (true/false)</Label>
+          <Input value={String(notificationForm.injuryRiskAlerts)} onChange={(e) => setNotificationForm((p) => ({ ...p, injuryRiskAlerts: e.target.value.toLowerCase() === 'true' }))} />
+          <Label>Weekly Summary (true/false)</Label>
+          <Input value={String(notificationForm.weeklySummary)} onChange={(e) => setNotificationForm((p) => ({ ...p, weeklySummary: e.target.value.toLowerCase() === 'true' }))} />
+          <Label>Match Insights Ready (true/false)</Label>
+          <Input value={String(notificationForm.matchInsightsReady)} onChange={(e) => setNotificationForm((p) => ({ ...p, matchInsightsReady: e.target.value.toLowerCase() === 'true' }))} />
+          <DialogFooter><Button variant="outline" onClick={() => setOpenDialog(null)}>Cancel</Button><Button onClick={handleSaveNotifications}>Save</Button></DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={openDialog === 'team'} onOpenChange={(o) => !o && setOpenDialog(null)}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>Team Settings</DialogTitle><DialogDescription>Update your team tactical defaults.</DialogDescription></DialogHeader>
+          <Label>Preferred Formation</Label>
+          <Input value={teamSettingsForm.preferredFormation} onChange={(e) => setTeamSettingsForm((p) => ({ ...p, preferredFormation: e.target.value }))} />
+          <Label>Play Style</Label>
+          <Input value={teamSettingsForm.playStyle} onChange={(e) => setTeamSettingsForm((p) => ({ ...p, playStyle: e.target.value }))} />
+          <Label>Training Focus</Label>
+          <Input value={teamSettingsForm.trainingFocus} onChange={(e) => setTeamSettingsForm((p) => ({ ...p, trainingFocus: e.target.value }))} />
+          <Label>Notes</Label>
+          <Input value={teamSettingsForm.notes} onChange={(e) => setTeamSettingsForm((p) => ({ ...p, notes: e.target.value }))} />
+          <DialogFooter><Button variant="outline" onClick={() => setOpenDialog(null)}>Cancel</Button><Button onClick={handleSaveTeamSettings}>Save</Button></DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

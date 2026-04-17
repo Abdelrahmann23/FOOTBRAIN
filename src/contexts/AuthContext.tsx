@@ -12,9 +12,11 @@ export interface TeamInfo {
 }
 
 export interface User {
+  id?: string;
   email: string;
   name: string;
   role: UserRole;
+  clubId?: string | null;
   teamInfo?: TeamInfo;
   // Optional: present in some admin APIs, not required for auth
   playerCount?: number;

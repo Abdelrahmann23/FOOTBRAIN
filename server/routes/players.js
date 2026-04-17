@@ -1,7 +1,7 @@
 import express from 'express';
-import { authenticate } from '../middleware/auth.js';
+import { authenticate, isAnalyst } from '../middleware/auth.js';
 import asyncHandler from '../middleware/asyncHandler.js';
-import { listPlayers, createPlayer } from '../controllers/playersController.js';
+import { listPlayers, createPlayer, bulkSetupPlayers, updatePlayer, deletePlayer } from '../controllers/playersController.js';
 
 const router = express.Router();
 
@@ -12,7 +12,12 @@ router.use(authenticate);
 router.get('/', asyncHandler(listPlayers));
 
 // POST /api/players
-router.post('/', asyncHandler(createPlayer));
+router.post('/', isAnalyst, asyncHandler(createPlayer));
+
+// POST /api/players/setup-bulk
+router.post('/setup-bulk', isAnalyst, asyncHandler(bulkSetupPlayers));
+router.put('/:id', isAnalyst, asyncHandler(updatePlayer));
+router.delete('/:id', isAnalyst, asyncHandler(deletePlayer));
 
 export default router;
 

@@ -26,7 +26,9 @@ export function PlayerCard({ player, onClick, isSelected, compact }: PlayerCardP
         </div>
         <div className="flex-1 min-w-0">
           <p className="font-medium text-sm truncate">{player.name}</p>
-          <p className="text-xs text-muted-foreground">{player.position} • {player.team}</p>
+          <p className="text-xs text-muted-foreground">
+            #{player.shirtNumber ?? player.globalId ?? '-'} • {player.position} • {player.team}
+          </p>
         </div>
       </div>
     );
@@ -47,6 +49,7 @@ export function PlayerCard({ player, onClick, isSelected, compact }: PlayerCardP
         <div className="flex-1 min-w-0">
           <h3 className="font-semibold text-lg truncate">{player.name}</h3>
           <p className="text-primary font-medium">{player.position}</p>
+          <p className="text-xs text-muted-foreground mt-1">T-shirt: #{player.shirtNumber ?? player.globalId ?? '-'}</p>
           <div className="flex items-center gap-3 mt-2 text-sm text-muted-foreground">
             <span className="flex items-center gap-1">
               <MapPin className="w-3.5 h-3.5" />

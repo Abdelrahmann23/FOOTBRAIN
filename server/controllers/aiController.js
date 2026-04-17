@@ -1,3 +1,7 @@
+import path from 'path';
+import { fileURLToPath } from 'url';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PYTHON_API_URL = process.env.PYTHON_API_URL || 'http://127.0.0.1:5000';
 
 export const predictMarketValue = async (req, res) => {
@@ -11,10 +15,16 @@ export const predictMarketValue = async (req, res) => {
     }
 
     const age = player.age ?? player.physical?.age ?? 25;
-    const goals = player.stats?.goals ?? 0;
-    const assists = player.stats?.assists ?? 0;
-    const shots = player.stats?.shots ?? 0;
-    const shotsOnTarget = player.stats?.shotsOnTarget ?? 0;
+    const goals = Number(player.stats?.goals ?? 0);
+    const assists = Number(player.stats?.assists ?? 0);
+    // Fallbacks prevent zeroed predictions when shot stats were never entered.
+    const shotsRaw = Number(player.stats?.shots ?? 0);
+    const shotsOnTargetRaw = Number(player.stats?.shotsOnTarget ?? 0);
+    const shots = shotsRaw > 0 ? shotsRaw : Math.max(1, goals * 3 + assists * 2);
+    const shotsOnTarget = shotsOnTargetRaw > 0 ? shotsOnTargetRaw : Math.max(1, goals + assists);
+    const minutesPlayed = player.stats?.minutesPlayed ?? 0;
+    const tackles = player.stats?.tackles ?? player.stats?.tackle ?? 0;
+    const interceptions = player.stats?.interceptions ?? player.stats?.interception ?? 0;
 
     const pythonRequest = {
       Age: age,
@@ -25,7 +35,12 @@ export const predictMarketValue = async (req, res) => {
       Nation: player.nationality || 'Other',
       Pos: player.position || 'FW',
       Club_x: player.team || 'Unknown Club',
-      Leauge: player.comp || 'Unknown League'
+      Leauge: player.comp || 'Unknown League',
+      Minutes_Played: minutesPlayed,
+      Tackles: tackles,
+      Interception: interceptions,
+      Goals: goals,
+      Assists: assists,
     };
 
     // Call Python API
@@ -77,15 +92,28 @@ export const predictMarketValue = async (req, res) => {
       return res.status(500).json({ error: pythonResult.error || 'Prediction failed' });
     }
 
-    const predictedValue = pythonResult.predictedValue || 0;
+    const predictedValue =
+      typeof pythonResult.predictedValue === 'number'
+        ? pythonResult.predictedValue
+        : typeof pythonResult.predictedValueEuros === 'number'
+        ? pythonResult.predictedValueEuros / 1_000_000
+        : 0;
     const confidence = 0.85;
     const valueRange = { min: Math.max(0, predictedValue * 0.8), max: predictedValue * 1.2 };
 
-    const valueFactors = [
-      { factor: 'Goals', contribution: Math.min(30, (goals / 30) * 30), trend: goals > 15 ? 'up' : goals < 5 ? 'down' : 'stable' },
-      { factor: 'Assists', contribution: Math.min(25, (assists / 20) * 25), trend: assists > 10 ? 'up' : assists < 3 ? 'down' : 'stable' },
-      { factor: 'Age', contribution: age < 25 ? 20 : age > 30 ? 10 : 15, trend: age < 25 ? 'up' : age > 30 ? 'down' : 'stable' }
-    ];
+    const isDefender = String(player.position || '').toLowerCase().includes('def');
+    const valueFactors = isDefender
+      ? [
+          { factor: 'Tackles', contribution: Math.min(35, (tackles / 120) * 35), trend: tackles > 70 ? 'up' : tackles < 25 ? 'down' : 'stable' },
+          { factor: 'Interceptions', contribution: Math.min(30, (interceptions / 100) * 30), trend: interceptions > 55 ? 'up' : interceptions < 20 ? 'down' : 'stable' },
+          { factor: 'Minutes', contribution: Math.min(20, (minutesPlayed / 1800) * 20), trend: minutesPlayed > 900 ? 'up' : 'stable' },
+          { factor: 'Age', contribution: age < 25 ? 15 : age > 31 ? 8 : 12, trend: age < 25 ? 'up' : age > 31 ? 'down' : 'stable' },
+        ]
+      : [
+          { factor: 'Goals', contribution: Math.min(30, (goals / 30) * 30), trend: goals > 15 ? 'up' : goals < 5 ? 'down' : 'stable' },
+          { factor: 'Assists', contribution: Math.min(25, (assists / 20) * 25), trend: assists > 10 ? 'up' : assists < 3 ? 'down' : 'stable' },
+          { factor: 'Age', contribution: age < 25 ? 20 : age > 30 ? 10 : 15, trend: age < 25 ? 'up' : age > 30 ? 'down' : 'stable' },
+        ];
 
     const totalContribution = valueFactors.reduce((sum, f) => sum + f.contribution, 0);
     valueFactors.forEach(f => { f.contribution = (f.contribution / totalContribution) * 100; });
@@ -103,6 +131,15 @@ export const predictMarketValue = async (req, res) => {
       valueFactors,
       comparablePlayers,
       modelConfidence: confidence,
+      inputStats: pythonResult.input || {
+        Age: age,
+        Minutes_Played: minutesPlayed,
+        Tackles: tackles,
+        Interception: interceptions,
+        Goals: goals,
+        Assists: assists,
+        Pos: player.position || 'Unknown',
+      },
       timestamp: new Date().toISOString()
     };
 
@@ -118,18 +155,28 @@ export const predictInjury = async (req, res) => {
     const { playerId, physical } = req.body;
 
     if (!physical) {
-      return res.status(400).json({ error: 'Physical attributes are required for injury prediction (age, height, weight, hamstring, sprint_speed, training_hours)' });
+      return res.status(400).json({ error: 'Physical attributes are required for injury prediction (age, height, weight, minutes_played, distance_covered_km, max_speed_kmh, sprint_count, hsr_m)' });
     }
 
     const age = physical.age ?? 25;
     const height = physical.height ?? 180;
     const weight = physical.weight ?? 75;
-    const bmi = physical.bmi ?? weight / Math.pow(height / 100, 2);
-    const hamstring = physical.hamstring ?? 70;
-    const sprint_speed = physical.sprint_speed ?? 30;
-    const training_hours = physical.training_hours ?? 15;
+    const minutes_played = physical.minutes_played ?? 90;
+    const distance_covered_km = physical.distance_covered_km ?? 10;
+    const max_speed_kmh = physical.max_speed_kmh ?? 34;
+    const sprint_count = physical.sprint_count ?? 250;
+    const hsr_m = physical.hsr_m ?? 8000;
 
-    const pythonRequest = { age: Number(age), height: Number(height), weight: Number(weight), bmi: Number(bmi), hamstring: Number(hamstring), sprint_speed: Number(sprint_speed), training_hours: Number(training_hours) };
+    const pythonRequest = {
+      age: Number(age),
+      height: Number(height),
+      weight: Number(weight),
+      minutes_played: Number(minutes_played),
+      distance_covered_km: Number(distance_covered_km),
+      max_speed_kmh: Number(max_speed_kmh),
+      sprint_count: Number(sprint_count),
+      hsr_m: Number(hsr_m),
+    };
 
     let response;
     let pythonResult;
@@ -193,6 +240,46 @@ export const predictInjury = async (req, res) => {
   } catch (error) {
     console.error('Injury prediction error:', error);
     res.status(500).json({ error: error.message || 'Failed to predict injury risk', details: 'Ensure the Python API is running and xgb_model.pkl is in server/python-api/models/' });
+  }
+};
+
+export const analyzeVideo = async (req, res) => {
+  try {
+    const rawPath = req.file?.path || req.body?.videoPath;
+    const videoPath = rawPath ? path.resolve(rawPath) : null;
+    if (!videoPath) {
+      return res.status(400).json({
+        error: 'No video provided',
+        details: 'Upload a file with field name "video" (multipart/form-data) or send JSON { "videoPath": "absolute/path" }.'
+      });
+    }
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 300000);
+    let response;
+    try {
+      response = await fetch(`${PYTHON_API_URL}/analyze-video`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ videoPath }),
+        signal: controller.signal
+      });
+    } finally {
+      clearTimeout(timeout);
+    }
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      return res.status(response.status).json(data);
+    }
+    res.json(data);
+  } catch (fetchError) {
+    if (fetchError.name === 'AbortError') {
+      return res.status(504).json({ error: 'Video analysis timed out', details: 'Try a shorter clip or ensure Python API is running.' });
+    }
+    if (fetchError.cause?.code === 'ECONNREFUSED' || fetchError.code === 'ECONNREFUSED') {
+      return res.status(503).json({ error: 'Python API is not running', details: 'Start the Python API: npm run dev:python' });
+    }
+    console.error('Video analysis error:', fetchError);
+    res.status(500).json({ error: fetchError.message || 'Video analysis failed' });
   }
 };
 

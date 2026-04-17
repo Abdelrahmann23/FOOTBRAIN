@@ -1,6 +1,6 @@
 import jwt from 'jsonwebtoken';
 import { User } from '../models/User.js';
-import { Team } from '../models/Team.js';
+import { ensureClubByName } from '../services/club.service.js';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'your-super-secret-jwt-key-change-this-in-production';
 
@@ -64,20 +64,9 @@ export const signup = async (req, res) => {
     try {
       await user.save();
 
-      // Ensure a corresponding team exists in the teams collection
-      const teamNameTrimmed = teamName.trim();
-      await Team.findOneAndUpdate(
-        { owner: user._id, name: teamNameTrimmed },
-        {
-          $setOnInsert: {
-            totalPlayers: 0,
-            injuryAlerts: 0,
-            marketValue: '€0M',
-            videosAnalyzed: 0,
-          },
-        },
-        { upsert: true, new: true }
-      );
+      const club = await ensureClubByName(teamName.trim(), user._id);
+      user.clubId = club._id;
+      await user.save();
     } catch (saveError) {
       // If save fails with duplicate key error, check what email exists
       if (saveError.name === 'MongoServerError' && saveError.code === 11000) {
@@ -100,9 +89,11 @@ export const signup = async (req, res) => {
       message: 'User created successfully',
       token,
       user: {
+        id: String(user._id),
         email: user.email,
         name: user.name,
         role: user.role,
+        clubId: user.clubId ? String(user.clubId) : null,
         teamInfo: user.teamInfo,
       },
     });
@@ -162,9 +153,11 @@ export const login = async (req, res) => {
       message: 'Login successful',
       token,
       user: {
+        id: String(user._id),
         email: user.email,
         name: user.name,
         role: user.role,
+        clubId: user.clubId ? String(user.clubId) : null,
         teamInfo: user.teamInfo,
       },
     });
@@ -198,9 +191,11 @@ export const verify = async (req, res) => {
 
     res.json({
       user: {
+        id: String(user._id),
         email: user.email,
         name: user.name,
         role: user.role,
+        clubId: user.clubId ? String(user.clubId) : null,
         teamInfo: user.teamInfo,
       },
     });

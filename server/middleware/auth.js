@@ -37,3 +37,16 @@ export const isAdmin = (req, res, next) => {
     res.status(403).json({ error: 'Admin access required' });
   }
 };
+
+export const isAnalyst = (req, res, next) => {
+  if (req.user?.role === 'admin') {
+    return next();
+  }
+  if (!req.user || req.user.role !== 'user') {
+    return res.status(403).json({ error: 'Analyst access required' });
+  }
+  if (!req.user.clubId) {
+    return res.status(400).json({ error: 'Analyst account is missing club assignment' });
+  }
+  return next();
+};

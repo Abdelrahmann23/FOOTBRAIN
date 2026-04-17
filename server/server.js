@@ -6,6 +6,11 @@ import authRoutes from './routes/auth.js';
 import aiRoutes from './routes/ai.js';
 import playerRoutes from './routes/players.js';
 import adminRoutes from './routes/admin.js';
+import matchRoutes from './routes/matches.js';
+import dashboardRoutes from './routes/dashboard.js';
+import reportRoutes from './routes/reports.js';
+import setupRoutes from './routes/setup.js';
+import accountRoutes from './routes/account.js';
 import { initializeAdmin } from './services/adminInit.service.js';
 import { notFound, errorHandler } from './middleware/errorMiddleware.js';
 
@@ -24,6 +29,11 @@ app.use('/api/auth', authRoutes);
 app.use('/api/ai', aiRoutes);
 app.use('/api/players', playerRoutes);
 app.use('/api/admin', adminRoutes);
+app.use('/api/matches', matchRoutes);
+app.use('/api/dashboard', dashboardRoutes);
+app.use('/api/reports', reportRoutes);
+app.use('/api/setup', setupRoutes);
+app.use('/api/account', accountRoutes);
 
 // Health check
 app.get('/api/health', (req, res) => {

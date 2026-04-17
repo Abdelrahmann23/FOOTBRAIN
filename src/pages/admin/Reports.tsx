@@ -23,6 +23,7 @@ import {
   Mail
 } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
+import { apiService } from '@/services/api';
 
 interface ReportTemplate {
   id: string;
@@ -113,6 +114,39 @@ export default function Reports() {
     });
   };
 
+  const handleEmailReport = () => {
+    if (!selectedTemplate) {
+      toast({
+        title: 'Select a template first',
+        description: 'Choose a report template before emailing.',
+        variant: 'destructive',
+      });
+      return;
+    }
+    apiService
+      .queueReportEmail({
+        templateId: selectedTemplate,
+        format,
+        dateRange,
+        startDate: startDate || undefined,
+        endDate: endDate || undefined,
+      })
+      .then((response) => {
+        if (response.error || !response.data) {
+          toast({
+            title: 'Failed to queue email',
+            description: response.error || 'Unknown server error',
+            variant: 'destructive',
+          });
+          return;
+        }
+        toast({
+          title: 'Email queued',
+          description: `Request ${response.data.requestId} is queued with status "${response.data.status}".`,
+        });
+      });
+  };
+
   return (
     <div className="min-h-screen bg-background">
       <Header 
@@ -200,7 +234,7 @@ export default function Reports() {
                 <Download className="w-4 h-4 mr-2" />
                 {isGenerating ? 'Generating...' : 'Generate Report'}
               </Button>
-              <Button variant="outline">
+              <Button variant="outline" onClick={handleEmailReport}>
                 <Mail className="w-4 h-4 mr-2" />
                 Email Report
               </Button>
@@ -275,7 +309,7 @@ export default function Reports() {
                       </p>
                     </div>
                   </div>
-                  <Button variant="ghost" size="icon">
+                  <Button variant="ghost" size="icon" onClick={() => handleExport(report.name)}>
                     <Download className="w-4 h-4" />
                   </Button>
                 </div>

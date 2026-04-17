@@ -4,7 +4,6 @@ import { PlayerCard } from '@/components/ui/player-card';
 import { RiskBadge } from '@/components/ui/risk-badge';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import { Button } from '@/components/ui/button';
-import { Slider } from '@/components/ui/slider';
 import { Input } from '@/components/ui/input';
 import { type PlayerData, type InjuryPredictionResponse } from '@/services/mockAIService';
 import { apiService } from '@/services/api';
@@ -17,9 +16,11 @@ const defaultPhysical = {
   age: 25,
   height: 180,
   weight: 75,
-  hamstring: 70,
-  sprint_speed: 32,
-  training_hours: 15,
+  minutes_played: 980,
+  distance_covered_km: 130,
+  max_speed_kmh: 35.5,
+  sprint_count: 310,
+  hsr_m: 8500,
 };
 
 export default function InjuryPrediction() {
@@ -29,13 +30,15 @@ export default function InjuryPrediction() {
   const [players, setPlayers] = useState<PlayerData[]>([]);
   const { user } = useAuth();
 
-  // Physical attributes for injury model (height, weight, age, BMI, hamstring, sprint speed, training hours)
+  // Injury model inputs (BMI is computed in backend from height/weight)
   const [age, setAge] = useState(defaultPhysical.age);
   const [height, setHeight] = useState(defaultPhysical.height);
   const [weight, setWeight] = useState(defaultPhysical.weight);
-  const [hamstring, setHamstring] = useState(defaultPhysical.hamstring);
-  const [sprintSpeed, setSprintSpeed] = useState(defaultPhysical.sprint_speed);
-  const [trainingHours, setTrainingHours] = useState(defaultPhysical.training_hours);
+  const [minutesPlayed, setMinutesPlayed] = useState(defaultPhysical.minutes_played);
+  const [distanceCoveredKm, setDistanceCoveredKm] = useState(defaultPhysical.distance_covered_km);
+  const [maxSpeedKmh, setMaxSpeedKmh] = useState(defaultPhysical.max_speed_kmh);
+  const [sprintCount, setSprintCount] = useState(defaultPhysical.sprint_count);
+  const [hsrM, setHsrM] = useState(defaultPhysical.hsr_m);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   const bmi = height && weight ? (weight / Math.pow(height / 100, 2)).toFixed(1) : '—';
@@ -68,8 +71,8 @@ export default function InjuryPrediction() {
     if (ph) {
       setHeight(ph.height ?? defaultPhysical.height);
       setWeight(ph.weight ?? defaultPhysical.weight);
-      setSprintSpeed(ph.sprintSpeed ?? defaultPhysical.sprint_speed);
     }
+    setMinutesPlayed(selectedPlayer.stats?.minutesPlayed ?? defaultPhysical.minutes_played);
   }, [selectedPlayer]);
 
   const runPrediction = async () => {
@@ -83,9 +86,11 @@ export default function InjuryPrediction() {
           age,
           height,
           weight,
-          hamstring,
-          sprint_speed: sprintSpeed,
-          training_hours: trainingHours,
+          minutes_played: minutesPlayed,
+          distance_covered_km: distanceCoveredKm,
+          max_speed_kmh: maxSpeedKmh,
+          sprint_count: sprintCount,
+          hsr_m: hsrM,
         },
       });
       if (response.error) {
@@ -104,7 +109,7 @@ export default function InjuryPrediction() {
     <div className="min-h-screen">
       <Header
         title="Injury Prediction"
-        subtitle="AI injury risk from physical attributes (height, weight, age, BMI, hamstring, sprint speed, training hours)"
+        subtitle="AI injury risk from BMI, minutes, distance, speed, sprints, and HSR"
       />
 
       <div className="p-6 animate-fade-in">
@@ -114,7 +119,7 @@ export default function InjuryPrediction() {
             <div className="stat-card">
               <h3 className="font-semibold mb-4">Select Player (optional)</h3>
               <p className="text-xs text-muted-foreground mb-2">
-                Pre-fills age, height, weight & sprint speed. Injury model uses physical data only, not goals/assists.
+                Pre-fills age, height, weight & minutes. You can edit all injury inputs manually below.
               </p>
               <div className="space-y-2 max-h-[280px] overflow-y-auto pr-2">
                 {players.length === 0 ? (
@@ -135,9 +140,9 @@ export default function InjuryPrediction() {
 
             {/* Physical attributes for injury prediction */}
             <div className="stat-card">
-              <h3 className="font-semibold mb-4">Physical Attributes</h3>
+              <h3 className="font-semibold mb-4">Injury Model Inputs</h3>
               <p className="text-xs text-muted-foreground mb-4">
-                Used only for injury risk. Market value uses goals, assists & performance stats instead.
+                Inputs: BMI (computed from height/weight), Minutes, Distance, Max Speed, Sprint Count, HSR.
               </p>
               <div className="space-y-4">
                 <div>
@@ -177,42 +182,60 @@ export default function InjuryPrediction() {
                   BMI: <span className="font-mono text-foreground">{bmi}</span> (computed)
                 </div>
                 <div>
-                  <div className="flex justify-between mb-1">
-                    <label className="text-sm text-muted-foreground">Hamstring (0–100)</label>
-                    <span className="text-sm font-mono">{hamstring}</span>
-                  </div>
-                  <Slider
-                    value={[hamstring]}
-                    onValueChange={([v]) => setHamstring(v)}
-                    max={100}
-                    min={0}
-                    step={5}
-                    className="w-full"
-                  />
-                </div>
-                <div>
-                  <label className="text-sm text-muted-foreground">Sprint speed (km/h or 0–100)</label>
+                  <label className="text-sm text-muted-foreground">Minutes Played</label>
                   <Input
                     type="number"
                     min={0}
-                    max={100}
-                    value={sprintSpeed}
-                    onChange={(e) => setSprintSpeed(Number(e.target.value) || 0)}
+                    max={1500}
+                    value={minutesPlayed}
+                    onChange={(e) => setMinutesPlayed(Number(e.target.value) || 0)}
                     className="mt-1"
                   />
                 </div>
                 <div>
-                  <div className="flex justify-between mb-1">
-                    <label className="text-sm text-muted-foreground">Training hours/week</label>
-                    <span className="text-sm font-mono">{trainingHours}</span>
-                  </div>
-                  <Slider
-                    value={[trainingHours]}
-                    onValueChange={([v]) => setTrainingHours(v)}
-                    max={40}
+                  <label className="text-sm text-muted-foreground">Distance Covered (km)</label>
+                  <Input
+                    type="number"
                     min={0}
-                    step={1}
-                    className="w-full"
+                    max={250}
+                    step={0.1}
+                    value={distanceCoveredKm}
+                    onChange={(e) => setDistanceCoveredKm(Number(e.target.value) || 0)}
+                    className="mt-1"
+                  />
+                </div>
+                <div>
+                  <label className="text-sm text-muted-foreground">Max Speed (km/h)</label>
+                  <Input
+                    type="number"
+                    min={0}
+                    max={50}
+                    step={0.1}
+                    value={maxSpeedKmh}
+                    onChange={(e) => setMaxSpeedKmh(Number(e.target.value) || 0)}
+                    className="mt-1"
+                  />
+                </div>
+                <div>
+                  <label className="text-sm text-muted-foreground">Sprint Count</label>
+                  <Input
+                    type="number"
+                    min={0}
+                    max={800}
+                    value={sprintCount}
+                    onChange={(e) => setSprintCount(Number(e.target.value) || 0)}
+                    className="mt-1"
+                  />
+                </div>
+                <div>
+                  <label className="text-sm text-muted-foreground">HSR (m)</label>
+                  <Input
+                    type="number"
+                    min={0}
+                    max={20000}
+                    value={hsrM}
+                    onChange={(e) => setHsrM(Number(e.target.value) || 0)}
+                    className="mt-1"
                   />
                 </div>
               </div>
