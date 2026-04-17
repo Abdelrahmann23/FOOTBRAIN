@@ -24,6 +24,24 @@ interface ApiResponse<T> {
   message?: string;
 }
 
+export interface DashboardRiskItem {
+  id: string;
+  name: string;
+  position: string;
+  team: string;
+  riskProbability: number;
+  riskLevel: 'low' | 'medium' | 'high';
+  updatedAt: string;
+}
+
+export interface DashboardActivityItem {
+  id: string;
+  type: 'injury' | 'value' | 'video' | 'ai';
+  title: string;
+  description: string;
+  timestamp: string;
+}
+
 class ApiService {
   private getAuthToken(): string | null {
     return localStorage.getItem('token');
@@ -303,6 +321,64 @@ class ApiService {
       injuryAlerts: number;
       totalPortfolioValue: string;
     }>('/dashboard/admin', { method: 'GET' });
+  }
+
+  async getDashboardRiskOverview(limit = 5) {
+    return this.request<{ players: DashboardRiskItem[] }>(`/dashboard/risk-overview?limit=${limit}`, {
+      method: 'GET',
+    });
+  }
+
+  async getDashboardPerformanceTrends(months = 6) {
+    return this.request<{ points: Array<{ month: string; predictions: number; accuracy: number }> }>(
+      `/dashboard/performance-trends?months=${months}`,
+      { method: 'GET' }
+    );
+  }
+
+  async getDashboardRecentActivity(limit = 8) {
+    return this.request<{ activities: DashboardActivityItem[] }>(`/dashboard/recent-activity?limit=${limit}`, {
+      method: 'GET',
+    });
+  }
+
+  async getAdminAnalytics(months = 6) {
+    return this.request<{
+      totals: { totalUsers: number; totalPlayers: number; totalVideos: number; avgMarketValue: number };
+      usageTrends: Array<{ month: string; users: number; videos: number; players: number }>;
+      injuryDistribution: Array<{ name: string; value: number }>;
+      teamPerformance: Array<{ name: string; players: number; injuries: number; videos: number; marketValue: number }>;
+    }>(`/admin/analytics?months=${months}`, { method: 'GET' });
+  }
+
+  async getAdminActivityLogs(params?: {
+    page?: number;
+    limit?: number;
+    status?: 'all' | 'success' | 'warning' | 'error';
+    resource?: string;
+    search?: string;
+  }) {
+    const qs = new URLSearchParams();
+    if (params?.page) qs.set('page', String(params.page));
+    if (params?.limit) qs.set('limit', String(params.limit));
+    if (params?.status) qs.set('status', params.status);
+    if (params?.resource) qs.set('resource', params.resource);
+    if (params?.search) qs.set('search', params.search);
+    return this.request<{
+      logs: Array<{
+        id: string;
+        timestamp: string;
+        user: string;
+        userEmail: string;
+        action: string;
+        resource: string;
+        status: 'success' | 'warning' | 'error';
+        ipAddress: string;
+        details?: string;
+      }>;
+      meta: { total: number; page: number; limit: number; totalPages: number };
+      resources: string[];
+    }>(`/admin/activity-logs${qs.toString() ? `?${qs.toString()}` : ''}`, { method: 'GET' });
   }
 
   async getPlayerReport(globalId: number) {

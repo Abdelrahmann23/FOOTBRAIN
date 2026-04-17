@@ -594,7 +594,119 @@ def predict_injury():
         if age_idx is not None:
             print(f"   [Injury] Age={values[age_idx]}, Height={height}, Weight={weight} -> model input OK")
 
-        # Predict using the trained model if available, otherwise use a heuristic
+        # Build workload/physical signals (0..1) for robust calibration.
+        # Some multiclass injury models are heavily centered on "medium"; these signals
+        # keep output responsive to meaningful input changes.
+        def _workload_heuristic_score():
+            score = 0.08
+            score += max(0.0, (age - 22) / 18.0) * 0.10
+            score += min(1.0, minutes_played / 1200.0) * 0.22
+            score += min(1.0, distance_covered_km / 180.0) * 0.18
+            score += min(1.0, sprint_count / 550.0) * 0.14
+            score += min(1.0, hsr_m / 12000.0) * 0.14
+            score += min(1.0, max_speed_kmh / 40.0) * 0.08
+            if bmi_val > 26:
+                score += min(1.0, (bmi_val - 26.0) / 8.0) * 0.07
+            elif bmi_val < 19:
+                score += min(1.0, (19.0 - bmi_val) / 6.0) * 0.07
+            return float(max(0.0, min(1.0, score)))
+
+        # Anchors from balanced_football_injury_dataset.xlsx (class means)
+        LOW_MEAN = {
+            'age': 25.53,
+            'bmi': 23.35,
+            'minutes_played': 701.82,
+            'distance_covered_km': 90.81,
+            'max_speed_kmh': 35.38,
+            'sprint_count': 220.27,
+            'hsr_m': 5921.83,
+        }
+        HIGH_MEAN = {
+            'age': 28.90,
+            'bmi': 23.50,
+            'minutes_played': 1106.44,
+            'distance_covered_km': 143.57,
+            'max_speed_kmh': 35.53,
+            'sprint_count': 350.95,
+            'hsr_m': 9504.45,
+        }
+        MODERATE_MEAN = {
+            'age': 27.70,
+            'bmi': 23.00,
+            'minutes_played': 969.95,
+            'distance_covered_km': 125.53,
+            'max_speed_kmh': 35.49,
+            'sprint_count': 305.42,
+            'hsr_m': 8254.10,
+        }
+
+        def _piecewise_unit(value, low, mid, high):
+            value = float(value)
+            low = float(low)
+            mid = float(mid)
+            high = float(high)
+            if not (low <= mid <= high):
+                return 0.5
+            if value <= mid:
+                denom = (mid - low)
+                if abs(denom) < 1e-9:
+                    return 0.25
+                return float(max(0.0, min(0.5, 0.5 * ((value - low) / denom))))
+            denom = (high - mid)
+            if abs(denom) < 1e-9:
+                return 0.75
+            return float(max(0.5, min(1.0, 0.5 + 0.5 * ((value - mid) / denom))))
+
+        def _dataset_anchor_probability():
+            # Normalize key dimensions using low->moderate->high anchors so
+            # moderate-class values naturally map around 0.5.
+            mins_n = _piecewise_unit(minutes_played, LOW_MEAN['minutes_played'], MODERATE_MEAN['minutes_played'], HIGH_MEAN['minutes_played'])
+            dist_n = _piecewise_unit(distance_covered_km, LOW_MEAN['distance_covered_km'], MODERATE_MEAN['distance_covered_km'], HIGH_MEAN['distance_covered_km'])
+            spr_n = _piecewise_unit(sprint_count, LOW_MEAN['sprint_count'], MODERATE_MEAN['sprint_count'], HIGH_MEAN['sprint_count'])
+            hsr_n = _piecewise_unit(hsr_m, LOW_MEAN['hsr_m'], MODERATE_MEAN['hsr_m'], HIGH_MEAN['hsr_m'])
+            age_n = _piecewise_unit(age, LOW_MEAN['age'], MODERATE_MEAN['age'], HIGH_MEAN['age'])
+            bmi_n = _piecewise_unit(bmi_val, LOW_MEAN['bmi'], MODERATE_MEAN['bmi'], HIGH_MEAN['bmi'])
+            speed_n = _piecewise_unit(max_speed_kmh, LOW_MEAN['max_speed_kmh'], MODERATE_MEAN['max_speed_kmh'], HIGH_MEAN['max_speed_kmh'])
+            score = (
+                0.30 * mins_n
+                + 0.24 * dist_n
+                + 0.18 * spr_n
+                + 0.18 * hsr_n
+                + 0.06 * age_n
+                + 0.02 * bmi_n
+                + 0.02 * speed_n
+            )
+            return float(max(0.0, min(1.0, score)))
+
+        def _monotonic_workload_adjustment():
+            # Explicit monotonic adjustment around the dataset's moderate center.
+            # Lower workload inputs should reliably reduce risk; higher should increase it.
+            def _signed_unit(value, center, span):
+                span = max(1e-6, float(span))
+                return float(max(-1.0, min(1.0, (float(value) - float(center)) / span)))
+
+            mins_d = _signed_unit(minutes_played, MODERATE_MEAN['minutes_played'], max(120.0, HIGH_MEAN['minutes_played'] - LOW_MEAN['minutes_played']))
+            dist_d = _signed_unit(distance_covered_km, MODERATE_MEAN['distance_covered_km'], max(20.0, HIGH_MEAN['distance_covered_km'] - LOW_MEAN['distance_covered_km']))
+            spr_d = _signed_unit(sprint_count, MODERATE_MEAN['sprint_count'], max(50.0, HIGH_MEAN['sprint_count'] - LOW_MEAN['sprint_count']))
+            hsr_d = _signed_unit(hsr_m, MODERATE_MEAN['hsr_m'], max(1500.0, HIGH_MEAN['hsr_m'] - LOW_MEAN['hsr_m']))
+            speed_d = _signed_unit(max_speed_kmh, MODERATE_MEAN['max_speed_kmh'], 2.0)
+
+            # Delta in [-1, 1]
+            delta = (
+                0.36 * mins_d
+                + 0.24 * dist_d
+                + 0.18 * spr_d
+                + 0.16 * hsr_d
+                + 0.06 * speed_d
+            )
+            # Convert to probability offset in roughly [-0.22, +0.22]
+            return float(0.22 * max(-1.0, min(1.0, delta)))
+
+        heuristic_probability = _workload_heuristic_score()
+        dataset_anchor_probability = _dataset_anchor_probability()
+        workload_adjustment = _monotonic_workload_adjustment()
+
+        # Predict using the trained model if available, otherwise use the heuristic
         if use_model:
             # Predict: support both binary and multiclass injury models.
             # For multiclass (e.g. classes [0,1,2]), map low/medium/high to a continuous risk score.
@@ -613,6 +725,15 @@ def predict_injury():
 
                 # Multiclass case: use expected severity so output is not pinned to one class index.
                 if classes is not None and len(classes) > 2:
+                    # Temperature scaling to reduce overconfident multiclass outputs.
+                    # T > 1.0 softens probabilities (useful when most cases cluster too high).
+                    raw_proba = np.asarray(proba, dtype=float)
+                    if raw_proba.sum() > 0:
+                        temp = 1.8
+                        softened = np.power(np.clip(raw_proba, 1e-9, 1.0), 1.0 / temp)
+                        softened_sum = float(softened.sum())
+                        if softened_sum > 0:
+                            proba = (softened / softened_sum).tolist()
                     severity_map = {}
                     for i, c in enumerate(classes):
                         c_str = str(c).strip().lower()
@@ -660,23 +781,24 @@ def predict_injury():
                     risk_probability = float(pred)
                 except Exception:
                     risk_probability = 0.5
+            # Final blend prioritizes monotonic workload response over model volatility.
+            # This guarantees that lowering workload-oriented stats lowers risk consistently.
+            model_component = float(max(0.0, min(1.0, risk_probability)))
+            anchor_component = float(max(0.0, min(1.0, dataset_anchor_probability)))
+            heuristic_component = float(max(0.0, min(1.0, heuristic_probability)))
+
+            # Baseline primarily from dataset/workload signals, model as secondary signal.
+            blended_base = (
+                (0.25 * model_component)
+                + (0.55 * anchor_component)
+                + (0.20 * heuristic_component)
+            )
+
+            # Apply explicit monotonic response to workload changes.
+            risk_probability = blended_base + workload_adjustment
+            risk_probability = float(max(0.0, min(1.0, risk_probability)))
         else:
-            # Heuristic fallback based on age, training_hours, hamstring, and BMI
-            risk_probability = 0.1
-            # Age contribution: older players slightly higher risk
-            age_contrib = max(0.0, (age - 22) / 40.0) * 0.35
-            # Training load contribution
-            train_contrib = min(1.0, training_hours / 40.0) * 0.35
-            # Hamstring weakness increases risk
-            ham_contrib = max(0.0, (60.0 - hamstring) / 60.0) * 0.25
-            # BMI outside optimal range increases risk
-            bmi_contrib = 0.0
-            if bmi_val > 26:
-                bmi_contrib = min(1.0, (bmi_val - 26) / 10.0) * 0.15
-            elif bmi_val < 19:
-                bmi_contrib = min(1.0, (19 - bmi_val) / 10.0) * 0.15
-            risk_probability = risk_probability + age_contrib + train_contrib + ham_contrib + bmi_contrib
-            risk_probability = max(0.0, min(1.0, risk_probability))
+            risk_probability = float(max(0.0, min(1.0, heuristic_probability + workload_adjustment)))
 
         # Map probability to a risk level unless already set by multiclass predicted class.
         if 'risk_level' not in locals():
@@ -709,6 +831,7 @@ def predict_injury():
             'risk_level': risk_level,
             'risk_probability': risk_probability,
             'risk_percentage': round(risk_probability * 100, 1),
+            'calibration_version': 'injury-cal-v5-monotonic',
             'top_risk_factors': top_risk_factors[:5],
             'model_confidence': 0.85,
             'input': {k: (float(v) if isinstance(v, (np.floating, np.integer)) else v) for k, v in row.items()}

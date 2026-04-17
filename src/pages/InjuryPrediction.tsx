@@ -114,12 +114,12 @@ export default function InjuryPrediction() {
 
       <div className="p-6 animate-fade-in">
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* Player selection (optional – pre-fills physical) */}
+          {/* Player selection (required for saved prediction linkage) */}
           <div className="space-y-4">
             <div className="stat-card">
-              <h3 className="font-semibold mb-4">Select Player (optional)</h3>
+              <h3 className="font-semibold mb-4">Select Player (required)</h3>
               <p className="text-xs text-muted-foreground mb-2">
-                Pre-fills age, height, weight & minutes. You can edit all injury inputs manually below.
+                Required so prediction history links to a real player for dashboard overview.
               </p>
               <div className="space-y-2 max-h-[280px] overflow-y-auto pr-2">
                 {players.length === 0 ? (
@@ -249,7 +249,7 @@ export default function InjuryPrediction() {
 
             <Button
               onClick={runPrediction}
-              disabled={isLoading}
+              disabled={isLoading || !selectedPlayer}
               className="w-full"
               size="lg"
             >
@@ -332,7 +332,7 @@ export default function InjuryPrediction() {
                       </svg>
                       <div className="absolute inset-0 flex items-center justify-center">
                         <span className="text-3xl font-bold">
-                          {Math.round(prediction.riskProbability * 100)}%
+                          {(prediction.riskProbability * 100).toFixed(1)}%
                         </span>
                       </div>
                     </div>

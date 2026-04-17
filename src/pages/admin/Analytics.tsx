@@ -2,8 +2,7 @@ import { useState, useEffect } from 'react';
 import { Header } from '@/components/layout/Header';
 import { StatCard } from '@/components/ui/stat-card';
 import { Button } from '@/components/ui/button';
-import { getAllUsers } from '@/services/userService';
-import { User } from '@/contexts/AuthContext';
+import { apiService } from '@/services/api';
 import { toast } from '@/hooks/use-toast';
 import { 
   BarChart3, 
@@ -27,43 +26,33 @@ import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContaine
 const COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6'];
 
 export default function Analytics() {
-  const [users, setUsers] = useState<User[]>([]);
+  const [totals, setTotals] = useState({
+    totalUsers: 0,
+    totalPlayers: 0,
+    totalVideos: 0,
+    avgMarketValue: 0,
+  });
+  const [usageTrends, setUsageTrends] = useState<Array<{ month: string; users: number; videos: number; players: number }>>([]);
+  const [injuryDistribution, setInjuryDistribution] = useState<Array<{ name: string; value: number }>>([]);
+  const [teamPerformance, setTeamPerformance] = useState<Array<{ name: string; players: number; injuries: number; videos: number; marketValue: number }>>([]);
   const [timeRange, setTimeRange] = useState<'week' | 'month' | 'year'>('month');
   const [showOnlyActiveTeams, setShowOnlyActiveTeams] = useState(false);
 
   useEffect(() => {
-    try {
-      const allUsers = getAllUsers();
-      setUsers(allUsers.filter(u => u.role === 'user'));
-    } catch (error) {
-      console.error('Error loading users for analytics:', error);
-      setUsers([]);
-    }
-  }, []);
+    const load = async () => {
+      const months = timeRange === 'week' ? 3 : timeRange === 'year' ? 12 : 6;
+      const response = await apiService.getAdminAnalytics(months);
+      if (!response.data) return;
+      setTotals(response.data.totals);
+      setUsageTrends(response.data.usageTrends);
+      setInjuryDistribution(response.data.injuryDistribution);
+      setTeamPerformance(response.data.teamPerformance);
+    };
+    load();
+  }, [timeRange]);
 
-  // Calculate analytics data
-  const totalUsers = users.length;
-  const totalPlayers = users.reduce((sum, u) => sum + (u.teamInfo?.totalPlayers || 0), 0);
-  const totalInjuries = users.reduce((sum, u) => sum + (u.teamInfo?.injuryAlerts || 0), 0);
-  const totalVideos = users.reduce((sum, u) => sum + (u.teamInfo?.videosAnalyzed || 0), 0);
-  const avgMarketValue = users.reduce((sum, u) => {
-    const marketValue = u.teamInfo?.marketValue || '€0M';
-    const value = parseFloat(marketValue.replace(/[€M]/g, '') || '0');
-    return sum + value;
-  }, 0) / (users.length || 1);
-
-  // Team performance data
-  const teamPerformance = users
-    .filter(u => u.teamInfo)
-    .filter(u => !showOnlyActiveTeams || (u.teamInfo?.videosAnalyzed || 0) > 0)
-    .map(u => ({
-      name: u.teamInfo!.name,
-      players: u.teamInfo!.totalPlayers,
-      injuries: u.teamInfo!.injuryAlerts,
-      videos: u.teamInfo!.videosAnalyzed,
-      marketValue: parseFloat((u.teamInfo!.marketValue || '€0M').replace(/[€M]/g, '') || '0'),
-    }))
-    .sort((a, b) => b.marketValue - a.marketValue)
+  const visibleTeamPerformance = teamPerformance
+    .filter((t) => !showOnlyActiveTeams || t.videos > 0)
     .slice(0, 10);
 
   const handleExportReport = () => {
@@ -89,23 +78,6 @@ export default function Analytics() {
       description: !showOnlyActiveTeams ? 'Showing only teams with analyzed videos.' : 'Showing all teams.',
     });
   };
-
-  // Usage trends (mock data)
-  const usageTrends = [
-    { month: 'Jan', users: 12, videos: 45, players: 280 },
-    { month: 'Feb', users: 15, videos: 52, players: 310 },
-    { month: 'Mar', users: 18, videos: 68, players: 340 },
-    { month: 'Apr', users: 20, videos: 75, players: 365 },
-    { month: 'May', users: 22, videos: 82, players: 390 },
-    { month: 'Jun', users: 25, videos: 95, players: 420 },
-  ];
-
-  // Injury distribution
-  const injuryDistribution = [
-    { name: 'Low Risk', value: users.filter(u => (u.teamInfo?.injuryAlerts || 0) === 0).length },
-    { name: 'Medium Risk', value: users.filter(u => (u.teamInfo?.injuryAlerts || 0) > 0 && (u.teamInfo?.injuryAlerts || 0) <= 2).length },
-    { name: 'High Risk', value: users.filter(u => (u.teamInfo?.injuryAlerts || 0) > 2).length },
-  ];
 
   return (
     <div className="min-h-screen bg-background">
@@ -143,27 +115,27 @@ export default function Analytics() {
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
           <StatCard
             title="Total Users"
-            value={totalUsers}
+            value={totals.totalUsers}
             subtitle="Active accounts"
             icon={Users}
             variant="primary"
           />
           <StatCard
             title="Total Players"
-            value={totalPlayers}
+            value={totals.totalPlayers}
             subtitle="Across all teams"
             icon={Users}
           />
           <StatCard
             title="Videos Analyzed"
-            value={totalVideos}
+            value={totals.totalVideos}
             subtitle={`${timeRange} period`}
             icon={Video}
             variant="success"
           />
           <StatCard
             title="Avg Market Value"
-            value={`€${avgMarketValue.toFixed(1)}M`}
+            value={`€${totals.avgMarketValue.toFixed(1)}M`}
             subtitle="Per team"
             icon={TrendingUp}
             variant="primary"
@@ -235,7 +207,7 @@ export default function Analytics() {
             <BarChart3 className="w-5 h-5 text-muted-foreground" />
           </div>
           <ResponsiveContainer width="100%" height={400}>
-            <BarChart data={teamPerformance}>
+            <BarChart data={visibleTeamPerformance}>
               <CartesianGrid strokeDasharray="3 3" />
               <XAxis dataKey="name" angle={-45} textAnchor="end" height={100} />
               <YAxis />
@@ -260,7 +232,7 @@ export default function Analytics() {
                 </tr>
               </thead>
               <tbody>
-                {teamPerformance.map((team, index) => (
+                {visibleTeamPerformance.map((team, index) => (
                   <tr key={index} className="border-b border-border hover:bg-secondary/50">
                     <td className="py-3 px-4 font-medium">{team.name}</td>
                     <td className="py-3 px-4 text-right">{team.players}</td>

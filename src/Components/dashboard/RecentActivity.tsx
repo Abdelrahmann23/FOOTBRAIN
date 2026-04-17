@@ -1,21 +1,6 @@
 import { Brain, Heart, TrendingUp, Video } from 'lucide-react';
 import { cn } from '@/lib/utils';
-
-interface Activity {
-  id: string;
-  type: 'injury' | 'value' | 'video' | 'ai';
-  title: string;
-  description: string;
-  time: string;
-}
-
-const activities: Activity[] = [
-  { id: '1', type: 'injury', title: 'Injury Risk Alert', description: 'Giovanni Rossi flagged as high risk', time: '2 min ago' },
-  { id: '2', type: 'video', title: 'Video Analysis Complete', description: 'Match vs Chelsea analyzed', time: '15 min ago' },
-  { id: '3', type: 'value', title: 'Value Update', description: 'Marcus Sterling value increased 12%', time: '1 hour ago' },
-  { id: '4', type: 'ai', title: 'Model Retrained', description: 'Injury prediction model updated', time: '3 hours ago' },
-  { id: '5', type: 'injury', title: 'Recovery Complete', description: 'Lucas Fernandez cleared to play', time: '5 hours ago' },
-];
+import type { DashboardActivityItem } from '@/services/api';
 
 const iconMap = {
   injury: Heart,
@@ -31,11 +16,30 @@ const colorMap = {
   ai: 'text-primary bg-primary/10',
 };
 
-export function RecentActivity() {
+interface RecentActivityProps {
+  activities: DashboardActivityItem[];
+}
+
+const relativeTime = (timestamp: string) => {
+  const date = new Date(timestamp);
+  const now = Date.now();
+  const diffMin = Math.floor((now - date.getTime()) / 60000);
+  if (diffMin < 1) return 'Just now';
+  if (diffMin < 60) return `${diffMin}m ago`;
+  const diffHours = Math.floor(diffMin / 60);
+  if (diffHours < 24) return `${diffHours}h ago`;
+  const diffDays = Math.floor(diffHours / 24);
+  return `${diffDays}d ago`;
+};
+
+export function RecentActivity({ activities }: RecentActivityProps) {
   return (
     <div className="stat-card">
       <h3 className="font-semibold mb-4">Recent Activity</h3>
       <div className="space-y-4">
+        {activities.length === 0 && (
+          <p className="text-sm text-muted-foreground">No recent activity yet.</p>
+        )}
         {activities.map((activity) => {
           const Icon = iconMap[activity.type];
           return (
@@ -50,7 +54,7 @@ export function RecentActivity() {
                 <p className="font-medium text-sm">{activity.title}</p>
                 <p className="text-xs text-muted-foreground truncate">{activity.description}</p>
               </div>
-              <span className="text-xs text-muted-foreground whitespace-nowrap">{activity.time}</span>
+              <span className="text-xs text-muted-foreground whitespace-nowrap">{relativeTime(activity.timestamp)}</span>
             </div>
           );
         })}

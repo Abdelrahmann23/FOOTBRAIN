@@ -1,15 +1,16 @@
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 
-const data = [
-  { month: 'Jan', predictions: 245, accuracy: 87 },
-  { month: 'Feb', predictions: 312, accuracy: 89 },
-  { month: 'Mar', predictions: 289, accuracy: 91 },
-  { month: 'Apr', predictions: 398, accuracy: 88 },
-  { month: 'May', predictions: 456, accuracy: 92 },
-  { month: 'Jun', predictions: 523, accuracy: 90 },
-];
+interface PerformancePoint {
+  month: string;
+  predictions: number;
+  accuracy: number;
+}
 
-export function PerformanceChart() {
+interface PerformanceChartProps {
+  data: PerformancePoint[];
+}
+
+export function PerformanceChart({ data }: PerformanceChartProps) {
   return (
     <div className="stat-card">
       <div className="flex items-center justify-between mb-6">

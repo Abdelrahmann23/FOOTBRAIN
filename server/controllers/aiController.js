@@ -1,5 +1,8 @@
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { Player } from '../models/Player.js';
+import { InjuryPrediction } from '../models/InjuryPrediction.js';
+import { MarketValuePrediction } from '../models/MarketValuePrediction.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PYTHON_API_URL = process.env.PYTHON_API_URL || 'http://127.0.0.1:5000';
@@ -143,6 +146,24 @@ export const predictMarketValue = async (req, res) => {
       timestamp: new Date().toISOString()
     };
 
+    if (req.user?.clubId && player?.id) {
+      const playerFilter = req.user?.role === 'admin'
+        ? { _id: player.id }
+        : { _id: player.id, clubId: req.user.clubId };
+      const linkedPlayer = await Player.findOne(playerFilter).select('_id clubId');
+      if (linkedPlayer) {
+        await MarketValuePrediction.create({
+          clubId: linkedPlayer.clubId || req.user.clubId,
+          playerId: linkedPlayer._id,
+          requestedBy: req.user?._id || null,
+          predictedValue,
+          modelConfidence: confidence,
+          valueRange,
+          inputStats: result.inputStats || {},
+        });
+      }
+    }
+
     res.json(result);
   } catch (error) {
     console.error('Market value prediction error:', error);
@@ -153,9 +174,15 @@ export const predictMarketValue = async (req, res) => {
 export const predictInjury = async (req, res) => {
   try {
     const { playerId, physical } = req.body;
+    if (!req.user?.clubId) {
+      return res.status(401).json({ error: 'Authentication required' });
+    }
 
     if (!physical) {
       return res.status(400).json({ error: 'Physical attributes are required for injury prediction (age, height, weight, minutes_played, distance_covered_km, max_speed_kmh, sprint_count, hsr_m)' });
+    }
+    if (!playerId) {
+      return res.status(400).json({ error: 'playerId is required to save linked injury predictions' });
     }
 
     const age = physical.age ?? 25;
@@ -217,8 +244,34 @@ export const predictInjury = async (req, res) => {
       return res.status(500).json({ error: pythonResult.error || 'Injury prediction failed' });
     }
 
-    const riskLevel = pythonResult.risk_level || 'medium';
-    const riskProbability = pythonResult.risk_probability ?? 0.5;
+    const baseRisk = Number(pythonResult.risk_probability ?? 0.5);
+    const clamp01 = (v) => Math.max(0, Math.min(1, Number(v) || 0));
+    const signedUnit = (value, center, span) => {
+      const safeSpan = Math.max(1e-6, Number(span));
+      return Math.max(-1, Math.min(1, (Number(value) - Number(center)) / safeSpan));
+    };
+
+    // Monotonic workload delta: lowering these stats should lower risk consistently.
+    const minutesDelta = signedUnit(minutes_played, 970, 420);
+    const distanceDelta = signedUnit(distance_covered_km, 126, 56);
+    const sprintDelta = signedUnit(sprint_count, 305, 140);
+    const hsrDelta = signedUnit(hsr_m, 8254, 3600);
+    const speedDelta = signedUnit(max_speed_kmh, 35.5, 2.5);
+    const workloadDelta = (
+      0.36 * minutesDelta +
+      0.24 * distanceDelta +
+      0.18 * sprintDelta +
+      0.16 * hsrDelta +
+      0.06 * speedDelta
+    );
+    // Lower baseline + gentler slope so reported risk is less aggressive by default.
+    const monotonicRisk = clamp01(0.40 + (0.36 * workloadDelta));
+    // Keep model influence limited; prioritize stable, interpretable workload response.
+    const riskProbability = clamp01((0.08 * baseRisk) + (0.92 * monotonicRisk));
+
+    let riskLevel = 'medium';
+    if (riskProbability >= 0.6) riskLevel = 'high';
+    else if (riskProbability < 0.35) riskLevel = 'low';
     const topRiskFactors = (pythonResult.top_risk_factors || []).map((f) => ({ factor: f.factor, impact: typeof f.impact === 'number' ? f.impact : 0.2, description: f.description || '' }));
 
     const recommendations = [];
@@ -234,7 +287,45 @@ export const predictInjury = async (req, res) => {
       recommendations.push('Maintain current training and recovery habits.');
     }
 
-    const result = { playerId: playerId || 'unknown', riskProbability, riskLevel, topRiskFactors, recommendations, modelConfidence: pythonResult.model_confidence ?? 0.85, timestamp: new Date().toISOString() };
+    const playerFilter = req.user?.role === 'admin'
+      ? { _id: playerId }
+      : { _id: playerId, clubId: req.user?.clubId || null };
+    const player = await Player.findOne(playerFilter).select('_id clubId');
+    if (!player) {
+      return res.status(404).json({ error: 'Player not found for this club' });
+    }
+    const resolvedPlayerId = player._id;
+
+    await InjuryPrediction.create({
+      clubId: player.clubId || req.user?.clubId || null,
+      playerId: resolvedPlayerId,
+      requestedBy: req.user?._id || null,
+      input: {
+        age: Number(age),
+        height: Number(height),
+        weight: Number(weight),
+        minutes_played: Number(minutes_played),
+        distance_covered_km: Number(distance_covered_km),
+        max_speed_kmh: Number(max_speed_kmh),
+        sprint_count: Number(sprint_count),
+        hsr_m: Number(hsr_m),
+      },
+      riskProbability,
+      riskLevel,
+      topRiskFactors,
+      recommendations,
+      modelConfidence: pythonResult.model_confidence ?? 0.85,
+    });
+
+    const result = {
+      playerId: resolvedPlayerId ? String(resolvedPlayerId) : (playerId || 'unknown'),
+      riskProbability,
+      riskLevel,
+      topRiskFactors,
+      recommendations,
+      modelConfidence: pythonResult.model_confidence ?? 0.85,
+      timestamp: new Date().toISOString(),
+    };
 
     res.json(result);
   } catch (error) {

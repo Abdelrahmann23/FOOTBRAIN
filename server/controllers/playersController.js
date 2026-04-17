@@ -1,5 +1,6 @@
 import { Player } from '../models/Player.js';
 import { Club } from '../models/Team.js';
+import { logActivity } from '../services/activityLog.service.js';
 
 // Helper to map Mongo player to frontend PlayerData shape
 const mapPlayerToClient = (playerDoc) => ({
@@ -114,6 +115,13 @@ export const createPlayer = async (req, res) => {
       message: 'Player created successfully',
       player: mapPlayerToClient(player),
     });
+    await logActivity(req, {
+      action: 'Add Player',
+      resource: 'Players',
+      status: 'success',
+      details: `Created player ${player.name}`,
+      metadata: { playerId: String(player._id), globalId: player.globalId },
+    });
   } catch (error) {
     if (error?.code === 11000) {
       return res.status(400).json({ error: 'Global ID (t-shirt number) must be unique within club' });
@@ -179,6 +187,13 @@ export const bulkSetupPlayers = async (req, res) => {
 
     const result = await Player.insertMany(docs, { ordered: false });
     await Club.findByIdAndUpdate(req.user.clubId, { $inc: { totalPlayers: result.length } });
+    await logActivity(req, {
+      action: 'Bulk Import Players',
+      resource: 'Players',
+      status: 'success',
+      details: `Imported ${result.length} players`,
+      metadata: { count: result.length },
+    });
 
     return res.status(201).json({
       message: 'Players imported successfully',
@@ -229,6 +244,13 @@ export const updatePlayer = async (req, res) => {
     }
 
     await player.save();
+    await logActivity(req, {
+      action: 'Update Player',
+      resource: 'Players',
+      status: 'success',
+      details: `Updated player ${player.name}`,
+      metadata: { playerId: String(player._id), globalId: player.globalId },
+    });
     return res.json({ message: 'Player updated successfully', player: mapPlayerToClient(player) });
   } catch (error) {
     if (error?.code === 11000) {
@@ -251,6 +273,13 @@ export const deletePlayer = async (req, res) => {
     if (deleted.clubId) {
       await Club.findByIdAndUpdate(deleted.clubId, { $inc: { totalPlayers: -1 } });
     }
+    await logActivity(req, {
+      action: 'Delete Player',
+      resource: 'Players',
+      status: 'warning',
+      details: `Deleted player ${deleted.name}`,
+      metadata: { playerId: String(deleted._id), globalId: deleted.globalId },
+    });
     return res.json({ message: 'Player deleted successfully' });
   } catch (error) {
     console.error('Error deleting player:', error);

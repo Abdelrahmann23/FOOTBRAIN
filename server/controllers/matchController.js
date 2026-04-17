@@ -4,6 +4,7 @@ import { IdMapping } from '../models/IdMapping.js';
 import { PlayerMatchStat } from '../models/PlayerMatchStat.js';
 import { PlayerAggregate } from '../models/PlayerAggregate.js';
 import { Club } from '../models/Team.js';
+import { logActivity } from '../services/activityLog.service.js';
 
 const toNumber = (v, d = 0) => {
   const n = Number(v);
@@ -26,6 +27,13 @@ export const createMatch = async (req, res) => {
     matchDate: new Date(matchDate),
     videoPath: String(videoPath || ''),
     status: 'created',
+  });
+  await logActivity(req, {
+    action: 'Create Match',
+    resource: 'Matches',
+    status: 'success',
+    details: `Created match ${match.title}`,
+    metadata: { matchId: String(match._id) },
   });
   return res.status(201).json({ match });
 };
@@ -50,6 +58,13 @@ export const saveRawInsights = async (req, res) => {
   match.rawInsights = rawInsights;
   match.status = 'processed';
   await match.save();
+  await logActivity(req, {
+    action: 'Save Raw Insights',
+    resource: 'Matches',
+    status: 'success',
+    details: `Saved ${rawInsights.length} raw insight rows`,
+    metadata: { matchId: String(match._id), rawInsightsCount: rawInsights.length },
+  });
   return res.json({ message: 'Raw insights saved', count: rawInsights.length });
 };
 
@@ -93,6 +108,13 @@ export const mapTempIds = async (req, res) => {
   match.status = 'mapped';
   match.mappingCompletedAt = new Date();
   await match.save();
+  await logActivity(req, {
+    action: 'Map Player IDs',
+    resource: 'Matches',
+    status: 'success',
+    details: `Mapped ${mappings.length} tracking IDs`,
+    metadata: { matchId: String(match._id), mappingsCount: mappings.length },
+  });
   return res.json({ message: 'Mappings saved', count: mappings.length });
 };
 
@@ -256,6 +278,13 @@ export const finalizeMatch = async (req, res) => {
 
   try {
     const upsertCount = await applyMatchFinalization(req, match);
+    await logActivity(req, {
+      action: 'Finalize Match',
+      resource: 'Matches',
+      status: 'success',
+      details: `Finalized match ${match.title}`,
+      metadata: { matchId: String(match._id), upsertedStats: upsertCount },
+    });
     return res.json({ message: 'Match finalized', upsertedStats: upsertCount });
   } catch (e) {
     return res.status(400).json({ error: e.message || 'Finalize failed' });
@@ -335,6 +364,13 @@ export const commitVideoAnalysis = async (req, res) => {
 
   try {
     const upsertCount = await applyMatchFinalization(req, match);
+    await logActivity(req, {
+      action: 'Commit Video Analysis',
+      resource: 'Video Analysis',
+      status: 'success',
+      details: `Committed video analysis for ${match.title}`,
+      metadata: { matchId: String(match._id), upsertedStats: upsertCount },
+    });
     return res.status(201).json({
       message: 'Video analysis saved to database',
       match,

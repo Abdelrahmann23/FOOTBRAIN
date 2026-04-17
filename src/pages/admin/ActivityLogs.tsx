@@ -24,6 +24,7 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { toast } from '@/hooks/use-toast';
+import { apiService } from '@/services/api';
 
 interface ActivityLog {
   id: string;
@@ -37,53 +38,6 @@ interface ActivityLog {
   details?: string;
 }
 
-// Mock activity logs data
-const generateMockLogs = (): ActivityLog[] => {
-  const actions = [
-    { action: 'Login', resource: 'Authentication', status: 'success' as const },
-    { action: 'Logout', resource: 'Authentication', status: 'success' as const },
-    { action: 'Add Player', resource: 'Players', status: 'success' as const },
-    { action: 'Update Player', resource: 'Players', status: 'success' as const },
-    { action: 'Delete Player', resource: 'Players', status: 'warning' as const },
-    { action: 'Run Injury Prediction', resource: 'Injury Prediction', status: 'success' as const },
-    { action: 'Analyze Video', resource: 'Video Analysis', status: 'success' as const },
-    { action: 'Calculate Market Value', resource: 'Market Value', status: 'success' as const },
-    { action: 'Failed Login Attempt', resource: 'Authentication', status: 'error' as const },
-    { action: 'Export Data', resource: 'Reports', status: 'success' as const },
-  ];
-
-  const users = [
-    { name: 'John Doe', email: 'user1@example.com' },
-    { name: 'Jane Smith', email: 'user2@example.com' },
-    { name: 'Mike Johnson', email: 'user3@example.com' },
-    { name: 'Sarah Williams', email: 'user4@example.com' },
-  ];
-
-  const logs: ActivityLog[] = [];
-  const now = new Date();
-
-  for (let i = 0; i < 50; i++) {
-    const action = actions[Math.floor(Math.random() * actions.length)];
-    const user = users[Math.floor(Math.random() * users.length)];
-    const hoursAgo = Math.floor(Math.random() * 168); // Last 7 days
-    const timestamp = new Date(now.getTime() - hoursAgo * 60 * 60 * 1000);
-
-    logs.push({
-      id: `log-${i + 1}`,
-      timestamp: timestamp.toISOString(),
-      user: user.name,
-      userEmail: user.email,
-      action: action.action,
-      resource: action.resource,
-      status: action.status,
-      ipAddress: `192.168.1.${Math.floor(Math.random() * 255)}`,
-      details: action.status === 'error' ? 'Invalid credentials provided' : undefined,
-    });
-  }
-
-  return logs.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
-};
-
 export default function ActivityLogs() {
   const [logs, setLogs] = useState<ActivityLog[]>([]);
   const [filteredLogs, setFilteredLogs] = useState<ActivityLog[]>([]);
@@ -91,10 +45,17 @@ export default function ActivityLogs() {
   const [statusFilter, setStatusFilter] = useState<'all' | 'success' | 'warning' | 'error'>('all');
   const [resourceFilter, setResourceFilter] = useState<string>('all');
 
+  const [resources, setResources] = useState<string[]>([]);
+
   useEffect(() => {
-    const mockLogs = generateMockLogs();
-    setLogs(mockLogs);
-    setFilteredLogs(mockLogs);
+    const load = async () => {
+      const response = await apiService.getAdminActivityLogs({ page: 1, limit: 200 });
+      if (!response.data) return;
+      setLogs(response.data.logs);
+      setFilteredLogs(response.data.logs);
+      setResources(response.data.resources || []);
+    };
+    load();
   }, []);
 
   useEffect(() => {
@@ -161,7 +122,7 @@ export default function ActivityLogs() {
     return date.toLocaleDateString();
   };
 
-  const uniqueResources = Array.from(new Set(logs.map(log => log.resource)));
+  const uniqueResources = resources.length > 0 ? resources : Array.from(new Set(logs.map(log => log.resource)));
 
   const handleExport = () => {
     const rows = [

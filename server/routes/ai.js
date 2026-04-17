@@ -5,6 +5,7 @@ import fs from 'fs';
 import { Readable } from 'stream';
 import { fileURLToPath } from 'url';
 import asyncHandler from '../middleware/asyncHandler.js';
+import { authenticate, isAnalyst } from '../middleware/auth.js';
 import { predictMarketValue, predictInjury, analyzeVideo, health } from '../controllers/aiController.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -29,9 +30,9 @@ if (!fs.existsSync(outputVideosDir)) {
   fs.mkdirSync(outputVideosDir, { recursive: true });
 }
 
-router.post('/predict/market-value', asyncHandler(predictMarketValue));
-router.post('/predict/injury', asyncHandler(predictInjury));
-router.post('/analyze-video', upload.single('video'), asyncHandler(analyzeVideo));
+router.post('/predict/market-value', authenticate, isAnalyst, asyncHandler(predictMarketValue));
+router.post('/predict/injury', authenticate, isAnalyst, asyncHandler(predictInjury));
+router.post('/analyze-video', authenticate, isAnalyst, upload.single('video'), asyncHandler(analyzeVideo));
 
 function isSafeOutputFilename(name) {
   if (!name || typeof name !== 'string') return false;

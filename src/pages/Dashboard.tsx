@@ -3,10 +3,10 @@ import { StatCard } from '@/components/ui/stat-card';
 import { RiskOverview } from '@/components/dashboard/RiskOverview';
 import { RecentActivity } from '@/components/dashboard/RecentActivity';
 import { PerformanceChart } from '@/components/dashboard/PerformanceChart';
-import { Users, Heart, TrendingUp, Video, Brain, Activity } from 'lucide-react';
+import { Users, Heart, TrendingUp, Video, Activity, Brain } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { apiService } from '@/services/api';
+import { apiService, type DashboardActivityItem, type DashboardRiskItem } from '@/services/api';
 import { useAuth } from '@/contexts/AuthContext';
 
 export default function Dashboard() {
@@ -17,13 +17,24 @@ export default function Dashboard() {
     injuryAlerts: 0,
     portfolioValue: '€0.0M',
     videosAnalyzed: 0,
-    modelAccuracy: '91.2%',
     predictionsMade: 0,
     subtitle: '',
   });
+  const [riskOverview, setRiskOverview] = useState<DashboardRiskItem[]>([]);
+  const [performancePoints, setPerformancePoints] = useState<Array<{ month: string; predictions: number; accuracy: number }>>([]);
+  const [recentActivities, setRecentActivities] = useState<DashboardActivityItem[]>([]);
 
   useEffect(() => {
     const load = async () => {
+      const [riskRes, trendRes, activityRes] = await Promise.all([
+        apiService.getDashboardRiskOverview(5),
+        apiService.getDashboardPerformanceTrends(6),
+        apiService.getDashboardRecentActivity(8),
+      ]);
+      if (riskRes.data) setRiskOverview(riskRes.data.players);
+      if (trendRes.data) setPerformancePoints(trendRes.data.points);
+      if (activityRes.data) setRecentActivities(activityRes.data.activities);
+
       if (isAdmin) {
         const response = await apiService.getAdminDashboard();
         if (response.data) {
@@ -32,7 +43,6 @@ export default function Dashboard() {
             injuryAlerts: response.data.injuryAlerts,
             portfolioValue: response.data.totalPortfolioValue,
             videosAnalyzed: response.data.totalMatches,
-            modelAccuracy: '91.2%',
             predictionsMade: response.data.totalMatches,
             subtitle: `Across ${response.data.totalClubs} clubs`,
           });
@@ -45,7 +55,6 @@ export default function Dashboard() {
             injuryAlerts: response.data.injuryAlerts,
             portfolioValue: response.data.marketValue,
             videosAnalyzed: response.data.videosAnalyzed,
-            modelAccuracy: '91.2%',
             predictionsMade: response.data.totalMatches,
             subtitle: `${response.data.totalMatches} finalized matches`,
           });
@@ -94,15 +103,8 @@ export default function Dashboard() {
           />
         </div>
 
-        {/* AI Model Stats */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <StatCard
-            title="Model Accuracy"
-            value={stats.modelAccuracy}
-            subtitle="Injury prediction"
-            icon={Brain}
-            variant="primary"
-          />
+        {/* Prediction Stats */}
+        <div className="grid grid-cols-1 md:grid-cols-1 gap-4">
           <StatCard
             title="Predictions Made"
             value={stats.predictionsMade}
@@ -114,16 +116,16 @@ export default function Dashboard() {
         {/* Charts and Lists */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           <div className="lg:col-span-2">
-            <PerformanceChart />
+            <PerformanceChart data={performancePoints} />
           </div>
           <div>
-            <RiskOverview />
+            <RiskOverview players={riskOverview} />
           </div>
         </div>
 
         {/* Recent Activity */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          <RecentActivity />
+          <RecentActivity activities={recentActivities} />
           
           {/* Quick Actions */}
           <div className="stat-card">

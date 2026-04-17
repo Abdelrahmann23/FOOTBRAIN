@@ -1,8 +1,13 @@
 import { User } from '../models/User.js';
+import mongoose from 'mongoose';
 import { Club } from '../models/Team.js';
 import { Player } from '../models/Player.js';
 import { Match } from '../models/Match.js';
+import { ActivityLog } from '../models/ActivityLog.js';
+import { InjuryPrediction } from '../models/InjuryPrediction.js';
+import { MarketValuePrediction } from '../models/MarketValuePrediction.js';
 import { ensureClubByName } from '../services/club.service.js';
+import { logActivity } from '../services/activityLog.service.js';
 
 const ADMIN_EMAIL = process.env.ADMIN_EMAIL || 'admin@footbrain.com';
 
@@ -33,9 +38,60 @@ export const listUsers = async (req, res) => {
       playerCounts.map((pc) => [pc._id.toString(), pc.count])
     );
 
+    const clubIds = users
+      .map((u) => u.clubId)
+      .filter((id) => Boolean(id))
+      .map((id) => id.toString());
+
+    const clubObjectIds = clubIds.map((id) => new mongoose.Types.ObjectId(id));
+
+    const [matchesByClub, latestRiskRows, latestValueRows] = await Promise.all([
+      Match.aggregate([
+        { $match: { clubId: { $in: clubObjectIds }, status: 'finalized' } },
+        { $group: { _id: '$clubId', totalMatches: { $sum: 1 } } },
+      ]),
+      InjuryPrediction.aggregate([
+        { $match: { clubId: { $in: clubObjectIds }, playerId: { $ne: null } } },
+        { $sort: { createdAt: -1 } },
+        { $group: { _id: '$playerId', doc: { $first: '$$ROOT' } } },
+        { $replaceRoot: { newRoot: '$doc' } },
+      ]),
+      MarketValuePrediction.aggregate([
+        { $match: { clubId: { $in: clubObjectIds }, playerId: { $ne: null } } },
+        { $sort: { createdAt: -1 } },
+        { $group: { _id: '$playerId', doc: { $first: '$$ROOT' } } },
+        { $replaceRoot: { newRoot: '$doc' } },
+      ]),
+    ]);
+
+    const matchesByClubMap = new Map(
+      matchesByClub.map((m) => [String(m._id), Number(m.totalMatches || 0)])
+    );
+    const injuryAlertsByClubMap = new Map();
+    latestRiskRows.forEach((row) => {
+      const cid = String(row.clubId || '');
+      if (!cid) return;
+      const isHigh = row.riskLevel === 'high' || Number(row.riskProbability || 0) >= 0.6;
+      if (!isHigh) return;
+      injuryAlertsByClubMap.set(cid, Number(injuryAlertsByClubMap.get(cid) || 0) + 1);
+    });
+    const marketValueByClubMap = new Map();
+    latestValueRows.forEach((row) => {
+      const cid = String(row.clubId || '');
+      if (!cid) return;
+      marketValueByClubMap.set(cid, Number(marketValueByClubMap.get(cid) || 0) + Number(row.predictedValue || 0));
+    });
+
     res.json({
       users: users.map((userDoc) => ({
         ...mapUser(userDoc),
+        teamInfo: {
+          ...(userDoc.teamInfo || {}),
+          totalPlayers: countsByUserId.get(userDoc._id.toString()) || 0,
+          injuryAlerts: injuryAlertsByClubMap.get(String(userDoc.clubId || '')) || 0,
+          marketValue: `€${Number(marketValueByClubMap.get(String(userDoc.clubId || '')) || 0).toFixed(1)}M`,
+          videosAnalyzed: matchesByClubMap.get(String(userDoc.clubId || '')) || 0,
+        },
         playerCount: countsByUserId.get(userDoc._id.toString()) || 0,
       })),
     });
@@ -127,6 +183,13 @@ export const createUser = async (req, res) => {
       message: 'User created successfully',
       user: mapUser(user),
     });
+    await logActivity(req, {
+      action: 'Create User',
+      resource: 'Admin',
+      status: 'success',
+      details: `Admin created user ${user.email}`,
+      metadata: { createdUserId: String(user._id), role: user.role },
+    });
   } catch (error) {
     console.error('Error creating user for admin:', error);
     res.status(500).json({
@@ -182,6 +245,13 @@ export const updateUser = async (req, res) => {
       message: 'User updated successfully',
       user: mapUser(user),
     });
+    await logActivity(req, {
+      action: 'Update User',
+      resource: 'Admin',
+      status: 'success',
+      details: `Admin updated user ${user.email}`,
+      metadata: { updatedUserId: String(user._id), role: user.role },
+    });
   } catch (error) {
     console.error('Error updating user for admin:', error);
     res.status(500).json({
@@ -222,10 +292,79 @@ export const deleteUser = async (req, res) => {
     }
 
     res.json({ message: 'User, players, and matches deleted successfully' });
+    await logActivity(req, {
+      action: 'Delete User',
+      resource: 'Admin',
+      status: 'warning',
+      details: `Admin deleted user ${emailParam}`,
+      metadata: { deletedUserId: String(user._id) },
+    });
   } catch (error) {
     console.error('Error deleting user for admin:', error);
     res.status(500).json({
       error: 'Failed to delete user',
+      details: error.message,
+    });
+  }
+};
+
+export const listActivityLogs = async (req, res) => {
+  try {
+    const page = Math.max(1, Number(req.query.page || 1));
+    const limit = Math.max(10, Math.min(200, Number(req.query.limit || 100)));
+    const status = String(req.query.status || 'all').toLowerCase();
+    const resource = String(req.query.resource || 'all');
+    const search = String(req.query.search || '').trim();
+
+    const filter = {};
+    if (status !== 'all') {
+      filter.status = status;
+    }
+    if (resource !== 'all') {
+      filter.resource = resource;
+    }
+    if (search) {
+      filter.$or = [
+        { action: { $regex: search, $options: 'i' } },
+        { details: { $regex: search, $options: 'i' } },
+        { actorEmail: { $regex: search, $options: 'i' } },
+        { actorName: { $regex: search, $options: 'i' } },
+      ];
+    }
+
+    const [logs, total, resources] = await Promise.all([
+      ActivityLog.find(filter)
+        .sort({ createdAt: -1 })
+        .skip((page - 1) * limit)
+        .limit(limit),
+      ActivityLog.countDocuments(filter),
+      ActivityLog.distinct('resource'),
+    ]);
+
+    res.json({
+      logs: logs.map((log) => ({
+        id: String(log._id),
+        timestamp: log.createdAt,
+        user: log.actorName || 'Unknown',
+        userEmail: log.actorEmail || 'unknown@local',
+        action: log.action,
+        resource: log.resource,
+        status: log.status,
+        ipAddress: log.ipAddress || 'N/A',
+        details: log.details || '',
+      })),
+      meta: {
+        total,
+        page,
+        limit,
+        totalPages: Math.max(1, Math.ceil(total / limit)),
+      },
+      resources: resources.sort(),
+    });
+  } catch (error) {
+    console.error('Error fetching activity logs for admin:', error);
+    res.status(500).json({
+      error: 'Failed to fetch activity logs',
       details: error.message,
     });
   }

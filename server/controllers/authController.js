@@ -1,6 +1,7 @@
 import jwt from 'jsonwebtoken';
 import { User } from '../models/User.js';
 import { ensureClubByName } from '../services/club.service.js';
+import { logActivity } from '../services/activityLog.service.js';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'your-super-secret-jwt-key-change-this-in-production';
 
@@ -97,6 +98,15 @@ export const signup = async (req, res) => {
         teamInfo: user.teamInfo,
       },
     });
+    await logActivity(req, {
+      user,
+      clubId: user.clubId || null,
+      action: 'Signup',
+      resource: 'Authentication',
+      status: 'success',
+      details: 'User account created',
+      metadata: { email: user.email, role: user.role },
+    });
   } catch (error) {
     console.error('Signup error:', error);
 
@@ -135,6 +145,13 @@ export const login = async (req, res) => {
 
     const user = await User.findOne({ email: normalizedEmail });
     if (!user) {
+      await logActivity(req, {
+        action: 'Failed Login Attempt',
+        resource: 'Authentication',
+        status: 'error',
+        details: 'Invalid email or password',
+        metadata: { email: normalizedEmail },
+      });
       return res.status(401).json({
         error: 'Invalid email or password',
       });
@@ -142,6 +159,15 @@ export const login = async (req, res) => {
 
     const isPasswordValid = await user.comparePassword(password);
     if (!isPasswordValid) {
+      await logActivity(req, {
+        user,
+        clubId: user.clubId || null,
+        action: 'Failed Login Attempt',
+        resource: 'Authentication',
+        status: 'error',
+        details: 'Invalid email or password',
+        metadata: { email: normalizedEmail },
+      });
       return res.status(401).json({
         error: 'Invalid email or password',
       });
@@ -160,6 +186,15 @@ export const login = async (req, res) => {
         clubId: user.clubId ? String(user.clubId) : null,
         teamInfo: user.teamInfo,
       },
+    });
+    await logActivity(req, {
+      user,
+      clubId: user.clubId || null,
+      action: 'Login',
+      resource: 'Authentication',
+      status: 'success',
+      details: 'User logged in successfully',
+      metadata: { email: user.email, role: user.role },
     });
   } catch (error) {
     console.error('Login error:', error);

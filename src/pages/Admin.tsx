@@ -27,8 +27,13 @@ import { cn } from '@/lib/utils';
 
 export default function Admin() {
   const [users, setUsers] = useState<User[]>([]);
-  const [totalPlayersFromDb, setTotalPlayersFromDb] = useState<number | null>(null);
-  const [dashboardMetrics, setDashboardMetrics] = useState<{ injuryAlerts: number; totalMatches: number; totalClubs: number } | null>(null);
+  const [dashboardMetrics, setDashboardMetrics] = useState<{
+    totalUsers: number;
+    totalPlayers: number;
+    injuryAlerts: number;
+    totalMatches: number;
+    totalClubs: number;
+  } | null>(null);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingUser, setEditingUser] = useState<User | null>(null);
   const [formData, setFormData] = useState({
@@ -63,24 +68,13 @@ export default function Admin() {
     }
   };
 
-  const loadStats = async () => {
-    try {
-      const response = await apiService.getAdminStats();
-      if (response.error || !response.data) {
-        console.error('Error loading admin stats:', response.error);
-        return;
-      }
-      setTotalPlayersFromDb(response.data.totalPlayers);
-    } catch (error) {
-      console.error('Error loading admin stats:', error);
-    }
-  };
-
   const loadDashboardMetrics = async () => {
     try {
       const response = await apiService.getAdminDashboard();
       if (response.error || !response.data) return;
       setDashboardMetrics({
+        totalUsers: response.data.totalUsers,
+        totalPlayers: response.data.totalPlayers,
         injuryAlerts: response.data.injuryAlerts,
         totalMatches: response.data.totalMatches,
         totalClubs: response.data.totalClubs,
@@ -92,16 +86,15 @@ export default function Admin() {
 
   useEffect(() => {
     loadUsers();
-    loadStats();
     loadDashboardMetrics();
   }, []);
 
   // Filter out admin users for display
   const regularUsers = users.filter(u => u.role === 'user');
-  const totalUsers = regularUsers.length;
-  const totalPlayers = regularUsers.reduce((sum, u) => sum + (u.teamInfo?.totalPlayers || 0), 0);
-  const totalInjuries = dashboardMetrics?.injuryAlerts ?? regularUsers.reduce((sum, u) => sum + (u.teamInfo?.injuryAlerts || 0), 0);
-  const totalVideos = dashboardMetrics?.totalMatches ?? regularUsers.reduce((sum, u) => sum + (u.teamInfo?.videosAnalyzed || 0), 0);
+  const totalUsers = dashboardMetrics?.totalUsers ?? 0;
+  const totalPlayers = dashboardMetrics?.totalPlayers ?? 0;
+  const totalInjuries = dashboardMetrics?.injuryAlerts ?? 0;
+  const totalVideos = dashboardMetrics?.totalMatches ?? 0;
 
   const handleOpenDialog = (user?: User) => {
     if (user) {
@@ -273,7 +266,7 @@ export default function Admin() {
           />
           <StatCard
             title="Total Players"
-            value={totalPlayersFromDb ?? totalPlayers}
+            value={totalPlayers}
             subtitle="In players database"
             icon={Users}
             variant="primary"
