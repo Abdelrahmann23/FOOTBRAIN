@@ -30,6 +30,9 @@ export default defineConfig(({ mode }) => {
     resolve: {
       alias: {
         "@": path.resolve(__dirname, "./src"),
+        // Folder is `src/Components` (capital C). Explicit alias avoids case-sensitive
+        // machines resolving `@/components/...` to a missing `src/components` path.
+        "@/components": path.resolve(__dirname, "./src/Components"),
       },
     },
   };

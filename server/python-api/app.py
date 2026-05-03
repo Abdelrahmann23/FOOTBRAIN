@@ -153,7 +153,7 @@ def load_injury_model():
                     print(f"[WARN] Injury scaler could not be loaded: {se}")
             return True
         except Exception as e:
-            print(f"❌ Error loading {path}: {str(e)}")
+            print(f"[ERROR] Error loading {path}: {str(e)}")
             continue
     print("[WARN] Injury: no model loaded. Put your .pkl at " + INJURY_MODEL_EXTERNAL + " or at server/python-api/models/xgb_model.pkl")
     return False
@@ -429,7 +429,7 @@ def predict_injury():
     # If no trained injury model is available, fall back to a simple heuristic
     use_model = injury_model is not None
     if not use_model:
-        print("⚠️  Injury: no trained injury model loaded — using heuristic fallback")
+        print("[WARN] Injury: no trained injury model loaded - using heuristic fallback")
 
     try:
         raw = request.get_json() or {}

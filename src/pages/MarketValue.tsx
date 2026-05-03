@@ -1,6 +1,5 @@
 import { useState, useEffect } from 'react';
 import { Header } from '@/components/layout/Header';
-import { PlayerCard } from '@/components/ui/player-card';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import { Button } from '@/components/ui/button';
 import { 
@@ -100,13 +99,22 @@ export default function MarketValue() {
               <h3 className="font-semibold mb-4">Select Player</h3>
               <div className="space-y-2 max-h-[500px] overflow-y-auto pr-2">
                 {players.map((player) => (
-                  <PlayerCard
+                  <button
                     key={player.id}
-                    player={player}
-                    compact
-                    isSelected={selectedPlayer?.id === player.id}
+                    type="button"
                     onClick={() => setSelectedPlayer(player)}
-                  />
+                    className={cn(
+                      'w-full text-left rounded-lg border px-3 py-2 text-sm font-medium transition-colors',
+                      selectedPlayer?.id === player.id
+                        ? 'border-primary bg-primary/5 text-foreground'
+                        : 'border-border bg-card text-foreground hover:border-primary/40',
+                    )}
+                  >
+                    <div className="font-medium">{player.name}</div>
+                    <div className="text-xs text-muted-foreground mt-0.5">
+                      T-shirt #{player.shirtNumber ?? player.globalId ?? '-'}
+                    </div>
+                  </button>
                 ))}
               </div>
             </div>

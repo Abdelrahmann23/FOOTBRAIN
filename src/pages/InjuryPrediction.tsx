@@ -1,6 +1,5 @@
 import { useState, useEffect } from 'react';
 import { Header } from '@/components/layout/Header';
-import { PlayerCard } from '@/components/ui/player-card';
 import { RiskBadge } from '@/components/ui/risk-badge';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import { Button } from '@/components/ui/button';
@@ -10,7 +9,6 @@ import { apiService } from '@/services/api';
 import { useAuth } from '@/contexts/AuthContext';
 import { AlertTriangle, CheckCircle, Info, Play, RefreshCw } from 'lucide-react';
 import { cn } from '@/lib/utils';
-
 // Physical attributes used for injury prediction (not goals/assists like market value)
 const defaultPhysical = {
   age: 25,
@@ -21,6 +19,62 @@ const defaultPhysical = {
   max_speed_kmh: 35.5,
   sprint_count: 310,
   hsr_m: 8500,
+};
+
+type InjuryInputs = typeof defaultPhysical;
+type InjuryInputsByPlayer = Record<string, InjuryInputs>;
+const INJURY_INPUTS_STORAGE_PREFIX = 'injuryInputsByPlayer:';
+
+const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
+
+const buildUniqueInjuryInputs = (player: PlayerData): InjuryInputs => {
+  // Deterministic seed from player identity so each player keeps a stable unique profile.
+  const seedText = `${player.id}-${player.name}-${player.position}-${player.age}`;
+  const seed = seedText.split('').reduce((acc, ch) => acc + ch.charCodeAt(0), 0);
+
+  const seededRange = (min: number, max: number, offset: number) => {
+    const span = max - min;
+    if (span <= 0) return min;
+    const value = min + ((seed * (offset + 3) + offset * 97) % (span + 1));
+    return value;
+  };
+
+  const baseMinutes = clamp(player.stats?.minutesPlayed ?? defaultPhysical.minutes_played, 90, 1500);
+  const sprintSpeed = player.physical?.sprintSpeed ?? 32;
+  const stamina = player.physical?.stamina ?? 70;
+  const strength = player.physical?.strength ?? 70;
+
+  const distanceCoveredKm = clamp(
+    Number((baseMinutes * (0.11 + stamina / 1200) + seededRange(2, 24, 1) / 10).toFixed(1)),
+    8,
+    250,
+  );
+  const maxSpeedKmh = clamp(
+    Number((sprintSpeed * 0.45 + 18 + seededRange(0, 25, 2) / 10).toFixed(1)),
+    20,
+    45,
+  );
+  const sprintCount = clamp(
+    Math.round(baseMinutes / 3.6 + stamina * 2.2 + seededRange(0, 170, 3)),
+    20,
+    800,
+  );
+  const hsrM = clamp(
+    Math.round(distanceCoveredKm * (58 + sprintSpeed * 0.9 + strength * 0.25) + seededRange(0, 900, 4)),
+    800,
+    20000,
+  );
+
+  return {
+    age: clamp(player.age ?? defaultPhysical.age, 16, 45),
+    height: clamp(player.physical?.height ?? defaultPhysical.height, 150, 220),
+    weight: clamp(player.physical?.weight ?? defaultPhysical.weight, 50, 120),
+    minutes_played: baseMinutes,
+    distance_covered_km: distanceCoveredKm,
+    max_speed_kmh: maxSpeedKmh,
+    sprint_count: sprintCount,
+    hsr_m: hsrM,
+  };
 };
 
 export default function InjuryPrediction() {
@@ -40,10 +94,29 @@ export default function InjuryPrediction() {
   const [sprintCount, setSprintCount] = useState(defaultPhysical.sprint_count);
   const [hsrM, setHsrM] = useState(defaultPhysical.hsr_m);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [savedInputsByPlayer, setSavedInputsByPlayer] = useState<InjuryInputsByPlayer>({});
 
   const bmi = height && weight ? (weight / Math.pow(height / 100, 2)).toFixed(1) : '—';
 
   // Load players and pre-fill physical from selected player
+  useEffect(() => {
+    if (!user?.email) {
+      setSavedInputsByPlayer({});
+      return;
+    }
+    try {
+      const raw = localStorage.getItem(`${INJURY_INPUTS_STORAGE_PREFIX}${user.email}`);
+      if (!raw) {
+        setSavedInputsByPlayer({});
+        return;
+      }
+      const parsed = JSON.parse(raw) as InjuryInputsByPlayer;
+      setSavedInputsByPlayer(parsed && typeof parsed === 'object' ? parsed : {});
+    } catch {
+      setSavedInputsByPlayer({});
+    }
+  }, [user?.email]);
+
   useEffect(() => {
     const fetchPlayers = async () => {
       if (!user) {
@@ -66,14 +139,44 @@ export default function InjuryPrediction() {
 
   useEffect(() => {
     if (!selectedPlayer) return;
-    setAge(selectedPlayer.age ?? defaultPhysical.age);
-    const ph = selectedPlayer.physical;
-    if (ph) {
-      setHeight(ph.height ?? defaultPhysical.height);
-      setWeight(ph.weight ?? defaultPhysical.weight);
+    const injuryInputs = savedInputsByPlayer[selectedPlayer.id] ?? buildUniqueInjuryInputs(selectedPlayer);
+    setAge(injuryInputs.age);
+    setHeight(injuryInputs.height);
+    setWeight(injuryInputs.weight);
+    setMinutesPlayed(injuryInputs.minutes_played);
+    setDistanceCoveredKm(injuryInputs.distance_covered_km);
+    setMaxSpeedKmh(injuryInputs.max_speed_kmh);
+    setSprintCount(injuryInputs.sprint_count);
+    setHsrM(injuryInputs.hsr_m);
+  }, [selectedPlayer, savedInputsByPlayer]);
+
+  const saveCurrentPlayerInputs = (next: Partial<InjuryInputs>) => {
+    if (!selectedPlayer || !user?.email) return;
+    const current: InjuryInputs = {
+      age,
+      height,
+      weight,
+      minutes_played: minutesPlayed,
+      distance_covered_km: distanceCoveredKm,
+      max_speed_kmh: maxSpeedKmh,
+      sprint_count: sprintCount,
+      hsr_m: hsrM,
+    };
+    const merged: InjuryInputs = { ...current, ...next };
+    const updatedMap: InjuryInputsByPlayer = {
+      ...savedInputsByPlayer,
+      [selectedPlayer.id]: merged,
+    };
+    setSavedInputsByPlayer(updatedMap);
+    try {
+      localStorage.setItem(
+        `${INJURY_INPUTS_STORAGE_PREFIX}${user.email}`,
+        JSON.stringify(updatedMap),
+      );
+    } catch {
+      // Ignore quota/storage errors and keep in-memory state.
     }
-    setMinutesPlayed(selectedPlayer.stats?.minutesPlayed ?? defaultPhysical.minutes_played);
-  }, [selectedPlayer]);
+  };
 
   const runPrediction = async () => {
     setIsLoading(true);
@@ -126,13 +229,22 @@ export default function InjuryPrediction() {
                   <p className="text-sm text-muted-foreground">No players in your team. Enter values manually below.</p>
                 ) : (
                   players.map((player) => (
-                    <PlayerCard
+                    <button
                       key={player.id}
-                      player={player}
-                      compact
-                      isSelected={selectedPlayer?.id === player.id}
+                      type="button"
                       onClick={() => setSelectedPlayer(player)}
-                    />
+                      className={cn(
+                        'w-full text-left rounded-lg border px-3 py-2 text-sm font-medium transition-colors',
+                        selectedPlayer?.id === player.id
+                          ? 'border-primary bg-primary/5 text-foreground'
+                          : 'border-border bg-card text-foreground hover:border-primary/40',
+                      )}
+                    >
+                      <div className="font-medium">{player.name}</div>
+                      <div className="text-xs text-muted-foreground mt-0.5">
+                        T-shirt #{player.shirtNumber ?? player.globalId ?? '-'}
+                      </div>
+                    </button>
                   ))
                 )}
               </div>
@@ -152,7 +264,11 @@ export default function InjuryPrediction() {
                     min={16}
                     max={45}
                     value={age}
-                    onChange={(e) => setAge(Number(e.target.value) || 0)}
+                    onChange={(e) => {
+                      const value = Number(e.target.value) || 0;
+                      setAge(value);
+                      saveCurrentPlayerInputs({ age: value });
+                    }}
                     className="mt-1"
                   />
                 </div>
@@ -163,7 +279,11 @@ export default function InjuryPrediction() {
                     min={150}
                     max={220}
                     value={height}
-                    onChange={(e) => setHeight(Number(e.target.value) || 0)}
+                    onChange={(e) => {
+                      const value = Number(e.target.value) || 0;
+                      setHeight(value);
+                      saveCurrentPlayerInputs({ height: value });
+                    }}
                     className="mt-1"
                   />
                 </div>
@@ -174,7 +294,11 @@ export default function InjuryPrediction() {
                     min={50}
                     max={120}
                     value={weight}
-                    onChange={(e) => setWeight(Number(e.target.value) || 0)}
+                    onChange={(e) => {
+                      const value = Number(e.target.value) || 0;
+                      setWeight(value);
+                      saveCurrentPlayerInputs({ weight: value });
+                    }}
                     className="mt-1"
                   />
                 </div>
@@ -188,7 +312,11 @@ export default function InjuryPrediction() {
                     min={0}
                     max={1500}
                     value={minutesPlayed}
-                    onChange={(e) => setMinutesPlayed(Number(e.target.value) || 0)}
+                    onChange={(e) => {
+                      const value = Number(e.target.value) || 0;
+                      setMinutesPlayed(value);
+                      saveCurrentPlayerInputs({ minutes_played: value });
+                    }}
                     className="mt-1"
                   />
                 </div>
@@ -200,7 +328,11 @@ export default function InjuryPrediction() {
                     max={250}
                     step={0.1}
                     value={distanceCoveredKm}
-                    onChange={(e) => setDistanceCoveredKm(Number(e.target.value) || 0)}
+                    onChange={(e) => {
+                      const value = Number(e.target.value) || 0;
+                      setDistanceCoveredKm(value);
+                      saveCurrentPlayerInputs({ distance_covered_km: value });
+                    }}
                     className="mt-1"
                   />
                 </div>
@@ -212,7 +344,11 @@ export default function InjuryPrediction() {
                     max={50}
                     step={0.1}
                     value={maxSpeedKmh}
-                    onChange={(e) => setMaxSpeedKmh(Number(e.target.value) || 0)}
+                    onChange={(e) => {
+                      const value = Number(e.target.value) || 0;
+                      setMaxSpeedKmh(value);
+                      saveCurrentPlayerInputs({ max_speed_kmh: value });
+                    }}
                     className="mt-1"
                   />
                 </div>
@@ -223,7 +359,11 @@ export default function InjuryPrediction() {
                     min={0}
                     max={800}
                     value={sprintCount}
-                    onChange={(e) => setSprintCount(Number(e.target.value) || 0)}
+                    onChange={(e) => {
+                      const value = Number(e.target.value) || 0;
+                      setSprintCount(value);
+                      saveCurrentPlayerInputs({ sprint_count: value });
+                    }}
                     className="mt-1"
                   />
                 </div>
@@ -234,7 +374,11 @@ export default function InjuryPrediction() {
                     min={0}
                     max={20000}
                     value={hsrM}
-                    onChange={(e) => setHsrM(Number(e.target.value) || 0)}
+                    onChange={(e) => {
+                      const value = Number(e.target.value) || 0;
+                      setHsrM(value);
+                      saveCurrentPlayerInputs({ hsr_m: value });
+                    }}
                     className="mt-1"
                   />
                 </div>

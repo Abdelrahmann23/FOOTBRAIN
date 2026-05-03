@@ -23,9 +23,10 @@ import {
 import type { PlayerData } from '@/services/mockAIService';
 import { apiService } from '@/services/api';
 import { useAuth } from '@/contexts/AuthContext';
-import { User, MapPin, Flag, Activity, Ruler, Weight, Plus, Pencil, Trash2 } from 'lucide-react';
+import { User, MapPin, Flag, Activity, Ruler, Weight, Plus, Pencil, Trash2, Upload, Link as LinkIcon } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { toast } from '@/hooks/use-toast';
+import { PlayerAvatar } from '@/components/ui/player-avatar';
 
 export default function Players() {
   const [selectedPlayer, setSelectedPlayer] = useState<PlayerData | null>(null);
@@ -56,7 +57,10 @@ export default function Players() {
     sprintSpeed: '',
     stamina: '',
     strength: '',
+    imageUrl: '',
   });
+
+  const [imageInputMode, setImageInputMode] = useState<'url' | 'upload'>('url');
 
   // Load players for the current user's team from the backend
   useEffect(() => {
@@ -111,9 +115,20 @@ export default function Players() {
         sprintSpeed: '',
         stamina: '',
         strength: '',
+        imageUrl: '',
       });
     }
   }, [isDialogOpen, user]);
+
+  const handleImageUpload = (file: File | null) => {
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = typeof reader.result === 'string' ? reader.result : '';
+      setFormData((prev) => ({ ...prev, imageUrl: result }));
+    };
+    reader.readAsDataURL(file);
+  };
 
   const handleSavePlayer = async () => {
     if (!user?.email) {
@@ -159,6 +174,7 @@ export default function Players() {
           stamina: parseInt(formData.stamina) || 0,
           strength: parseInt(formData.strength) || 0,
         },
+        imageUrl: formData.imageUrl.trim(),
       };
 
       const response = editingPlayerId
@@ -196,6 +212,7 @@ export default function Players() {
         sprintSpeed: '',
         stamina: '',
         strength: '',
+        imageUrl: '',
       });
 
       setEditingPlayerId(null);
@@ -241,6 +258,7 @@ export default function Players() {
       sprintSpeed: String(selectedPlayer.physical.sprintSpeed || 0),
       stamina: String(selectedPlayer.physical.stamina || 0),
       strength: String(selectedPlayer.physical.strength || 0),
+      imageUrl: selectedPlayer.imageUrl || '',
     });
     setIsDialogOpen(true);
   };
@@ -354,12 +372,15 @@ export default function Players() {
                 {/* Profile Card */}
                 <div className="stat-card border-primary/30 ai-border-glow">
                   <div className="flex items-center gap-4 mb-6">
-                    <div className="w-20 h-20 rounded-xl bg-primary/10 flex items-center justify-center">
-                      <User className="w-10 h-10 text-primary" />
-                    </div>
+                    <PlayerAvatar
+                      name={selectedPlayer.name}
+                      imageUrl={selectedPlayer.imageUrl}
+                      className="w-20 h-20 rounded-xl border-2 border-emerald-500/40"
+                      iconClassName="w-10 h-10"
+                    />
                     <div>
                       <h2 className="font-bold text-xl">{selectedPlayer.name}</h2>
-                      <p className="text-primary font-medium">{selectedPlayer.position}</p>
+                      <p className="text-emerald-300 font-medium">{selectedPlayer.position}</p>
                       <p className="text-xs text-muted-foreground">T-shirt #{selectedPlayer.shirtNumber ?? selectedPlayer.globalId ?? '-'}</p>
                       <div className="flex items-center gap-2 text-sm text-muted-foreground mt-1">
                         <MapPin className="w-3.5 h-3.5" />
@@ -369,83 +390,72 @@ export default function Players() {
                   </div>
 
                   <div className="grid grid-cols-2 gap-4">
-                    <div className="p-3 rounded-lg bg-secondary/50">
+                    <div className="p-3 rounded-lg border border-emerald-500/30 bg-emerald-500/10">
                       <div className="flex items-center gap-2 mb-1">
-                        <Flag className="w-4 h-4 text-muted-foreground" />
-                        <span className="text-xs text-muted-foreground">Nationality</span>
+                        <Flag className="w-4 h-4 text-emerald-300" />
+                        <span className="text-xs text-emerald-100/85">Nationality</span>
                       </div>
-                      <p className="font-medium">{selectedPlayer.nationality}</p>
+                      <p className="font-medium text-emerald-300">{selectedPlayer.nationality}</p>
                     </div>
-                    <div className="p-3 rounded-lg bg-secondary/50">
+                    <div className="p-3 rounded-lg border border-emerald-500/30 bg-emerald-500/10">
                       <div className="flex items-center gap-2 mb-1">
-                        <Activity className="w-4 h-4 text-muted-foreground" />
-                        <span className="text-xs text-muted-foreground">Age</span>
+                        <Activity className="w-4 h-4 text-emerald-300" />
+                        <span className="text-xs text-emerald-100/85">Age</span>
                       </div>
-                      <p className="font-medium">{selectedPlayer.age} years</p>
+                      <p className="font-medium text-emerald-300">{selectedPlayer.age} years</p>
                     </div>
                   </div>
                 </div>
 
                 {/* Performance Stats */}
-                <div className="stat-card">
+                <div className="stat-card border-emerald-500/30 bg-emerald-500/[0.04]">
                   <h3 className="font-semibold mb-4">Performance Stats</h3>
-                  <div className="space-y-3">
-                    <div className="flex justify-between items-center">
-                      <span className="text-muted-foreground text-sm">Matches</span>
-                      <span className="font-mono font-medium">{selectedPlayer.stats.matches}</span>
-                    </div>
-                    <div className="flex justify-between items-center">
-                      <span className="text-muted-foreground text-sm">Goals</span>
-                      <span className="font-mono font-medium text-primary">{selectedPlayer.stats.goals}</span>
-                    </div>
-                    <div className="flex justify-between items-center">
-                      <span className="text-muted-foreground text-sm">Assists</span>
-                      <span className="font-mono font-medium">{selectedPlayer.stats.assists}</span>
-                    </div>
-                    <div className="flex justify-between items-center">
-                      <span className="text-muted-foreground text-sm">Minutes Played</span>
-                      <span className="font-mono font-medium">{selectedPlayer.stats.minutesPlayed}</span>
-                    </div>
-                    <div className="flex justify-between items-center">
-                      <span className="text-muted-foreground text-sm">Tackles</span>
-                      <span className="font-mono font-medium">{selectedPlayer.stats.tackles ?? 0}</span>
-                    </div>
-                    <div className="flex justify-between items-center">
-                      <span className="text-muted-foreground text-sm">Interceptions</span>
-                      <span className="font-mono font-medium">{selectedPlayer.stats.interceptions ?? 0}</span>
-                    </div>
-                    <div className="flex justify-between items-center">
-                      <span className="text-muted-foreground text-sm">Injuries</span>
-                      <span className={cn(
-                        "font-mono font-medium",
+                  <div className="grid grid-cols-2 gap-3">
+                    {[
+                      { label: 'Matches', value: selectedPlayer.stats.matches },
+                      { label: 'Goals', value: selectedPlayer.stats.goals },
+                      { label: 'Assists', value: selectedPlayer.stats.assists },
+                      { label: 'Minutes', value: selectedPlayer.stats.minutesPlayed },
+                      { label: 'Tackles', value: selectedPlayer.stats.tackles ?? 0 },
+                      { label: 'Interceptions', value: selectedPlayer.stats.interceptions ?? 0 },
+                    ].map((stat) => (
+                      <div key={stat.label} className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-3">
+                        <p className="text-[11px] uppercase tracking-wide text-emerald-100/80">{stat.label}</p>
+                        <p className="font-mono text-xl font-bold text-emerald-300">{stat.value}</p>
+                      </div>
+                    ))}
+                    <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-3">
+                      <p className="text-[11px] uppercase tracking-wide text-emerald-100/80">Injuries</p>
+                      <p className={cn(
+                        "font-mono text-xl font-bold",
                         selectedPlayer.stats.injuries > 2 && "text-risk-high",
                         selectedPlayer.stats.injuries > 0 && selectedPlayer.stats.injuries <= 2 && "text-risk-medium",
-                        selectedPlayer.stats.injuries === 0 && "text-risk-low"
+                        selectedPlayer.stats.injuries === 0 && "text-emerald-300"
                       )}>
                         {selectedPlayer.stats.injuries}
-                      </span>
+                      </p>
                     </div>
                   </div>
                 </div>
 
                 {/* Physical Attributes */}
-                <div className="stat-card">
+                <div className="stat-card border-emerald-500/30 bg-emerald-500/[0.03]">
                   <h3 className="font-semibold mb-4">Physical Attributes</h3>
                   <div className="space-y-4">
                     <div className="grid grid-cols-2 gap-3">
-                      <div className="p-3 rounded-lg bg-secondary/50">
+                      <div className="p-3 rounded-lg border border-emerald-500/25 bg-emerald-500/10">
                         <div className="flex items-center gap-2 mb-1">
-                          <Ruler className="w-4 h-4 text-muted-foreground" />
-                          <span className="text-xs text-muted-foreground">Height</span>
+                          <Ruler className="w-4 h-4 text-emerald-300" />
+                          <span className="text-xs text-emerald-100/85">Height</span>
                         </div>
-                        <p className="font-medium">{selectedPlayer.physical.height} cm</p>
+                        <p className="font-medium text-emerald-300">{selectedPlayer.physical.height} cm</p>
                       </div>
-                      <div className="p-3 rounded-lg bg-secondary/50">
+                      <div className="p-3 rounded-lg border border-emerald-500/25 bg-emerald-500/10">
                         <div className="flex items-center gap-2 mb-1">
-                          <Weight className="w-4 h-4 text-muted-foreground" />
-                          <span className="text-xs text-muted-foreground">Weight</span>
+                          <Weight className="w-4 h-4 text-emerald-300" />
+                          <span className="text-xs text-emerald-100/85">Weight</span>
                         </div>
-                        <p className="font-medium">{selectedPlayer.physical.weight} kg</p>
+                        <p className="font-medium text-emerald-300">{selectedPlayer.physical.weight} kg</p>
                       </div>
                     </div>
 
@@ -457,12 +467,12 @@ export default function Players() {
                     ].map((attr) => (
                       <div key={attr.label}>
                         <div className="flex justify-between mb-1">
-                          <span className="text-sm text-muted-foreground">{attr.label}</span>
-                          <span className="text-sm font-mono">{attr.value}</span>
+                          <span className="text-sm text-emerald-100/85">{attr.label}</span>
+                          <span className="text-sm font-mono text-emerald-300">{attr.value}</span>
                         </div>
-                        <div className="w-full h-2 bg-secondary rounded-full overflow-hidden">
+                        <div className="w-full h-2 bg-emerald-900/40 rounded-full overflow-hidden">
                           <div 
-                            className="h-full bg-primary rounded-full transition-all duration-500"
+                            className="h-full bg-emerald-400 rounded-full transition-all duration-500"
                             style={{ width: `${attr.value}%` }}
                           />
                         </div>
@@ -571,6 +581,59 @@ export default function Players() {
                   onChange={(e) => setFormData({ ...formData, nationality: e.target.value })}
                   required
                 />
+              </div>
+              <div className="border-t border-border pt-4 mt-2">
+                <h4 className="font-semibold mb-3">Player Photo (optional)</h4>
+                <div className="flex gap-2 mb-3">
+                  <Button
+                    type="button"
+                    variant={imageInputMode === 'url' ? 'default' : 'outline'}
+                    size="sm"
+                    onClick={() => setImageInputMode('url')}
+                  >
+                    <LinkIcon className="w-4 h-4 mr-2" />
+                    URL
+                  </Button>
+                  <Button
+                    type="button"
+                    variant={imageInputMode === 'upload' ? 'default' : 'outline'}
+                    size="sm"
+                    onClick={() => setImageInputMode('upload')}
+                  >
+                    <Upload className="w-4 h-4 mr-2" />
+                    Upload
+                  </Button>
+                </div>
+                {imageInputMode === 'url' ? (
+                  <div className="grid gap-2">
+                    <Label htmlFor="imageUrl">Image URL</Label>
+                    <Input
+                      id="imageUrl"
+                      placeholder="https://example.com/player.jpg"
+                      value={formData.imageUrl}
+                      onChange={(e) => setFormData({ ...formData, imageUrl: e.target.value })}
+                    />
+                  </div>
+                ) : (
+                  <div className="grid gap-2">
+                    <Label htmlFor="imageUpload">Upload from PC</Label>
+                    <Input
+                      id="imageUpload"
+                      type="file"
+                      accept="image/*"
+                      onChange={(e) => handleImageUpload(e.target.files?.[0] || null)}
+                    />
+                  </div>
+                )}
+                {formData.imageUrl && (
+                  <div className="mt-3">
+                    <img
+                      src={formData.imageUrl}
+                      alt="Preview"
+                      className="w-20 h-20 rounded-lg object-cover border border-border"
+                    />
+                  </div>
+                )}
               </div>
 
               <div className="border-t border-border pt-4 mt-2">

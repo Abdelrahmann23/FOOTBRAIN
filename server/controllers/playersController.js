@@ -12,6 +12,7 @@ const mapPlayerToClient = (playerDoc) => ({
   position: playerDoc.position,
   team: playerDoc.teamName,
   nationality: playerDoc.nationality,
+  imageUrl: playerDoc.imageUrl || '',
   bmi:
     playerDoc.physical?.bmi
       ? Number(playerDoc.physical.bmi)
@@ -77,6 +78,7 @@ export const createPlayer = async (req, res) => {
       age,
       position,
       nationality,
+      imageUrl,
       globalId,
       shirtNumber,
       stats = {},
@@ -103,6 +105,7 @@ export const createPlayer = async (req, res) => {
       age: age ?? 0,
       position,
       nationality,
+      imageUrl: String(imageUrl || '').trim(),
       globalId: resolvedGlobalId,
       shirtNumber: Number(shirtNumber || resolvedGlobalId),
       stats,
@@ -218,11 +221,12 @@ export const updatePlayer = async (req, res) => {
       return res.status(404).json({ error: 'Player not found' });
     }
 
-    const { name, age, position, nationality, shirtNumber, globalId, stats, physical } = req.body || {};
+    const { name, age, position, nationality, imageUrl, shirtNumber, globalId, stats, physical } = req.body || {};
     if (name !== undefined) player.name = String(name).trim();
     if (age !== undefined) player.age = Number(age) || 0;
     if (position !== undefined) player.position = String(position).trim();
     if (nationality !== undefined) player.nationality = String(nationality).trim();
+    if (imageUrl !== undefined) player.imageUrl = String(imageUrl || '').trim();
     if (shirtNumber !== undefined || globalId !== undefined) {
       const nextGlobal = Number(globalId || shirtNumber);
       if (!Number.isNaN(nextGlobal) && nextGlobal > 0) {
