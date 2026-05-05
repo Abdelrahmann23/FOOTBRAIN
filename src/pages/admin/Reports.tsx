@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Header } from '@/components/layout/Header';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -14,16 +14,26 @@ import { Input } from '@/components/ui/input';
 import { 
   FileText, 
   Download,
-  Calendar,
   BarChart3,
   Users,
   TrendingUp,
   FileSpreadsheet,
-  FilePdf,
   Mail
 } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
 import { apiService } from '@/services/api';
+
+type DateRange = 'week' | 'month' | 'quarter' | 'year' | 'custom';
+type ExportFormat = 'pdf' | 'excel' | 'csv';
+
+interface GeneratedReport {
+  id: string;
+  templateId: string;
+  name: string;
+  date: string;
+  format: string;
+  status: 'queued' | 'sent' | 'failed';
+}
 
 interface ReportTemplate {
   id: string;
@@ -70,21 +80,267 @@ const reportTemplates: ReportTemplate[] = [
     category: 'analytics',
   },
   {
-    id: 'custom',
-    name: 'Custom Report',
-    description: 'Create a custom report with selected metrics',
+    id: 'player-squad',
+    name: 'Player Squad Report',
+    description: 'Player roster, physical profile, and key metrics overview',
     icon: FileSpreadsheet,
-    category: 'custom',
+    category: 'users',
   },
 ];
 
 export default function Reports() {
   const [selectedTemplate, setSelectedTemplate] = useState<string>('');
-  const [dateRange, setDateRange] = useState<'week' | 'month' | 'quarter' | 'year' | 'custom'>('month');
+  const [dateRange, setDateRange] = useState<DateRange>('month');
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
-  const [format, setFormat] = useState<'pdf' | 'excel' | 'csv'>('pdf');
+  const [format, setFormat] = useState<ExportFormat>('pdf');
   const [isGenerating, setIsGenerating] = useState(false);
+  const [isEmailing, setIsEmailing] = useState(false);
+  const [recentReports, setRecentReports] = useState<GeneratedReport[]>([]);
+
+  useEffect(() => {
+    const loadRecentReports = async () => {
+      const response = await apiService.getRecentReportRequests();
+      if (!response.data) return;
+      const mapped = response.data.requests.map((request) => ({
+        id: request.id,
+        templateId: request.templateId,
+        name: reportTemplates.find((t) => t.id === request.templateId)?.name || request.templateId,
+        date: request.createdAt,
+        format: String(request.format || '').toUpperCase(),
+        status: request.status,
+      }));
+      setRecentReports(mapped);
+    };
+
+    loadRecentReports();
+  }, []);
+
+  const escapeCsv = (value: unknown) => `"${String(value ?? '').replace(/"/g, '""')}"`;
+
+  const downloadBlob = (content: string, fileName: string, mimeType: string) => {
+    const blob = new Blob([content], { type: mimeType });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = fileName;
+    link.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const formatDateRangeLabel = () => {
+    if (dateRange !== 'custom') return `Last ${dateRange}`;
+    if (startDate && endDate) return `${startDate} to ${endDate}`;
+    return 'Custom range';
+  };
+
+  const addRecentReport = (templateId: string, reportName: string, selectedFormat: ExportFormat) => {
+    const next: GeneratedReport = {
+      id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      templateId,
+      name: reportName,
+      date: new Date().toISOString(),
+      format: selectedFormat.toUpperCase(),
+      status: 'sent',
+    };
+    setRecentReports((prev) => [next, ...prev].slice(0, 10));
+  };
+
+  const generateReportRows = async (templateId: string) => {
+    const months = dateRange === 'week' ? 3 : dateRange === 'year' ? 12 : dateRange === 'quarter' ? 3 : 6;
+    const [analyticsResponse, logsResponse, dashboardResponse] = await Promise.all([
+      apiService.getAdminAnalytics(months),
+      apiService.getAdminActivityLogs({ page: 1, limit: 200 }),
+      apiService.getAdminDashboard(),
+    ]);
+
+    if (!analyticsResponse.data || !logsResponse.data || !dashboardResponse.data) {
+      throw new Error(
+        analyticsResponse.error || logsResponse.error || dashboardResponse.error || 'Unable to fetch report data.'
+      );
+    }
+
+    const template = reportTemplates.find((t) => t.id === templateId);
+    const reportName = template?.name || 'Admin Report';
+    const headerRows = [
+      ['Report', reportName],
+      ['Generated At', new Date().toISOString()],
+      ['Date Range', formatDateRangeLabel()],
+      ['Template', templateId],
+      [''],
+    ];
+
+    const dashboard = dashboardResponse.data;
+    const analytics = analyticsResponse.data;
+    const logs = logsResponse.data.logs;
+
+    if (templateId === 'user-activity') {
+      return {
+        reportName,
+        rows: [
+          ...headerRows,
+          ['Summary Metric', 'Value'],
+          ['Total Users', dashboard.totalUsers],
+          ['Total Players', dashboard.totalPlayers],
+          ['Total Matches', dashboard.totalMatches],
+          ['Total Clubs', dashboard.totalClubs],
+          [''],
+          ['Timestamp', 'User', 'Email', 'Action', 'Resource', 'Status', 'IP', 'Details'],
+          ...logs.map((log) => [
+            log.timestamp,
+            log.user,
+            log.userEmail,
+            log.action,
+            log.resource,
+            log.status,
+            log.ipAddress,
+            log.details || '',
+          ]),
+        ],
+      };
+    }
+
+    if (templateId === 'team-performance') {
+      const playersResponse = await apiService.getTeamPerformancePlayersReport();
+      if (!playersResponse.data) {
+        throw new Error(playersResponse.error || 'Unable to fetch player squad details.');
+      }
+      return {
+        reportName,
+        rows: [
+          ...headerRows,
+          ['Team', 'Players', 'Injuries', 'Videos', 'Market Value (M)'],
+          ...analytics.teamPerformance.map((team) => [
+            team.name,
+            team.players,
+            team.injuries,
+            team.videos,
+            team.marketValue,
+          ]),
+          [''],
+          ['Player Name', 'Team', 'Position', 'Age', 'Matches', 'Goals', 'Assists', 'Tackles', 'Interceptions', 'Minutes', 'Sprint', 'Stamina', 'Strength', 'Latest Risk', 'Latest Distance (m)'],
+          ...playersResponse.data.players.map((player) => [
+            player.name,
+            player.teamName,
+            player.position,
+            player.age,
+            player.stats.matches,
+            player.stats.goals,
+            player.stats.assists,
+            player.stats.tackles,
+            player.stats.interceptions,
+            player.stats.minutesPlayed,
+            player.physical.sprintSpeed,
+            player.physical.stamina,
+            player.physical.strength,
+            player.latestMetrics ? Number((player.latestMetrics.riskScore || 0).toFixed(2)) : 0,
+            player.latestMetrics ? player.latestMetrics.distanceM : 0,
+          ]),
+        ],
+      };
+    }
+
+    if (templateId === 'market-value') {
+      return {
+        reportName,
+        rows: [
+          ...headerRows,
+          ['Team', 'Players', 'Injuries', 'Videos', 'Market Value (M)'],
+          ...analytics.teamPerformance.map((team) => [
+            team.name,
+            team.players,
+            team.injuries,
+            team.videos,
+            team.marketValue,
+          ]),
+        ],
+      };
+    }
+
+    if (templateId === 'system-usage') {
+      return {
+        reportName,
+        rows: [
+          ...headerRows,
+          ['Month', 'Users', 'Videos', 'Players'],
+          ...analytics.usageTrends.map((point) => [point.month, point.users, point.videos, point.players]),
+          [''],
+          ['Risk Distribution', 'Count'],
+          ...analytics.injuryDistribution.map((risk) => [risk.name, risk.value]),
+        ],
+      };
+    }
+
+    if (templateId === 'injury-analysis') {
+      return {
+        reportName,
+        rows: [
+          ...headerRows,
+          ['Risk Bucket', 'Count'],
+          ...analytics.injuryDistribution.map((risk) => [risk.name, risk.value]),
+          [''],
+          ['Team', 'High-Risk Injuries'],
+          ...analytics.teamPerformance.map((team) => [team.name, team.injuries]),
+        ],
+      };
+    }
+
+    return {
+      reportName,
+      rows: [
+        ...headerRows,
+        ['Summary Metric', 'Value'],
+        ['Total Users', dashboard.totalUsers],
+        ['Total Players', dashboard.totalPlayers],
+        ['Total Matches', dashboard.totalMatches],
+        ['Total Clubs', dashboard.totalClubs],
+        ['Injury Alerts', dashboard.injuryAlerts],
+        ['Portfolio Value', dashboard.totalPortfolioValue],
+      ],
+    };
+  };
+
+  const exportRows = (rows: Array<Array<string | number>>, reportName: string, selectedFormat: ExportFormat) => {
+    const timestamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
+    const safeName = reportName.toLowerCase().replace(/[^a-z0-9]+/g, '_');
+    const csvContent = rows.map((row) => row.map(escapeCsv).join(',')).join('\n');
+
+    if (selectedFormat === 'csv') {
+      downloadBlob(csvContent, `${safeName}_${timestamp}.csv`, 'text/csv;charset=utf-8;');
+      return;
+    }
+
+    if (selectedFormat === 'excel') {
+      const tsvContent = rows.map((row) => row.map((value) => String(value ?? '')).join('\t')).join('\n');
+      downloadBlob(tsvContent, `${safeName}_${timestamp}.xls`, 'application/vnd.ms-excel;charset=utf-8;');
+      return;
+    }
+
+    const htmlRows = rows
+      .map((row) => `<tr>${row.map((col) => `<td style="padding:6px;border:1px solid #ccc;">${String(col ?? '')}</td>`).join('')}</tr>`)
+      .join('');
+    const printWindow = window.open('', '_blank');
+    if (!printWindow) {
+      throw new Error('Popup blocked. Please allow popups to export as PDF.');
+    }
+    printWindow.document.write(`
+      <html>
+        <head>
+          <title>${reportName}</title>
+        </head>
+        <body style="font-family: Arial, sans-serif; padding: 24px;">
+          <h1>${reportName}</h1>
+          <table style="border-collapse: collapse; width: 100%;">${htmlRows}</table>
+          <script>
+            window.onload = function() {
+              window.print();
+            };
+          </script>
+        </body>
+      </html>
+    `);
+    printWindow.document.close();
+  };
 
   const handleGenerate = async () => {
     if (!selectedTemplate) {
@@ -97,24 +353,71 @@ export default function Reports() {
     }
 
     setIsGenerating(true);
-    // Simulate report generation
-    await new Promise(resolve => setTimeout(resolve, 2000));
-    
-    toast({
-      title: 'Report generated',
-      description: 'Your report has been generated successfully and is ready for download.',
-    });
-    setIsGenerating(false);
+    try {
+      if (dateRange === 'custom' && (!startDate || !endDate)) {
+        throw new Error('Please provide both start and end dates for a custom range.');
+      }
+      if (dateRange === 'custom' && new Date(startDate) > new Date(endDate)) {
+        throw new Error('Start date cannot be after end date.');
+      }
+      const { rows, reportName } = await generateReportRows(selectedTemplate);
+      exportRows(rows, reportName, format);
+      await apiService.createReportRequest({
+        templateId: selectedTemplate,
+        format,
+        dateRange,
+        startDate: startDate || undefined,
+        endDate: endDate || undefined,
+        status: 'sent',
+      }).catch(() => null);
+      addRecentReport(selectedTemplate, reportName, format);
+      toast({
+        title: 'Report generated',
+        description: `${reportName} exported successfully as ${format.toUpperCase()}.`,
+      });
+    } catch (error) {
+      toast({
+        title: 'Failed to generate report',
+        description: error instanceof Error ? error.message : 'Unknown error occurred.',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsGenerating(false);
+    }
   };
 
-  const handleExport = (templateId: string) => {
-    toast({
-      title: 'Exporting report',
-      description: `Exporting ${reportTemplates.find(t => t.id === templateId)?.name}...`,
-    });
+  const handleExport = async (templateId: string) => {
+    setSelectedTemplate(templateId);
+    setIsGenerating(true);
+    try {
+      const template = reportTemplates.find((t) => t.id === templateId);
+      const { rows, reportName } = await generateReportRows(templateId);
+      exportRows(rows, reportName, format);
+      await apiService.createReportRequest({
+        templateId,
+        format,
+        dateRange,
+        startDate: startDate || undefined,
+        endDate: endDate || undefined,
+        status: 'sent',
+      }).catch(() => null);
+      addRecentReport(templateId, reportName, format);
+      toast({
+        title: 'Export complete',
+        description: `${template?.name || 'Report'} extracted as ${format.toUpperCase()}.`,
+      });
+    } catch (error) {
+      toast({
+        title: 'Export failed',
+        description: error instanceof Error ? error.message : 'Could not export report.',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsGenerating(false);
+    }
   };
 
-  const handleEmailReport = () => {
+  const handleEmailReport = async () => {
     if (!selectedTemplate) {
       toast({
         title: 'Select a template first',
@@ -123,28 +426,69 @@ export default function Reports() {
       });
       return;
     }
-    apiService
-      .queueReportEmail({
+
+    if (dateRange === 'custom' && (!startDate || !endDate)) {
+      toast({
+        title: 'Missing date range',
+        description: 'Please provide both start and end dates for a custom range.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    if (dateRange === 'custom' && new Date(startDate) > new Date(endDate)) {
+      toast({
+        title: 'Invalid date range',
+        description: 'Start date cannot be after end date.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    setIsEmailing(true);
+    try {
+      const response = await apiService.queueReportEmail({
         templateId: selectedTemplate,
         format,
         dateRange,
         startDate: startDate || undefined,
         endDate: endDate || undefined,
-      })
-      .then((response) => {
-        if (response.error || !response.data) {
-          toast({
-            title: 'Failed to queue email',
-            description: response.error || 'Unknown server error',
-            variant: 'destructive',
-          });
-          return;
-        }
-        toast({
-          title: 'Email queued',
-          description: `Request ${response.data.requestId} is queued with status "${response.data.status}".`,
-        });
       });
+
+      if (response.error || !response.data) {
+        toast({
+          title: 'Failed to queue email',
+          description: response.error || 'Unknown server error',
+          variant: 'destructive',
+        });
+        return;
+      }
+
+      toast({
+        title: 'Email queued',
+        description: `Request ${response.data.requestId} is queued with status "${response.data.status}".`,
+      });
+      const templateName = reportTemplates.find((t) => t.id === selectedTemplate)?.name || selectedTemplate;
+      setRecentReports((prev) => [
+        {
+          id: response.data.requestId,
+          templateId: selectedTemplate,
+          name: templateName,
+          date: new Date().toISOString(),
+          format: format.toUpperCase(),
+          status: 'queued',
+        },
+        ...prev,
+      ].slice(0, 25));
+    } catch (error) {
+      toast({
+        title: 'Failed to queue email',
+        description: error instanceof Error ? error.message : 'Unknown error while queueing email report.',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsEmailing(false);
+    }
   };
 
   return (
@@ -234,9 +578,9 @@ export default function Reports() {
                 <Download className="w-4 h-4 mr-2" />
                 {isGenerating ? 'Generating...' : 'Generate Report'}
               </Button>
-              <Button variant="outline" onClick={handleEmailReport}>
+              <Button variant="outline" onClick={handleEmailReport} disabled={isGenerating || isEmailing || !selectedTemplate}>
                 <Mail className="w-4 h-4 mr-2" />
-                Email Report
+                {isEmailing ? 'Queueing Email...' : 'Email Report'}
               </Button>
             </div>
           </CardContent>
@@ -258,6 +602,7 @@ export default function Reports() {
                       <Button
                         variant="ghost"
                         size="icon"
+                        disabled={isGenerating}
                         onClick={() => handleExport(template.id)}
                       >
                         <Download className="w-4 h-4" />
@@ -289,13 +634,11 @@ export default function Reports() {
           </CardHeader>
           <CardContent>
             <div className="space-y-4">
-              {[
-                { name: 'User Activity Report - January 2025', date: '2025-01-20', format: 'PDF' },
-                { name: 'Team Performance Report - Q4 2024', date: '2025-01-15', format: 'Excel' },
-                { name: 'System Usage Report - December 2024', date: '2025-01-10', format: 'PDF' },
-              ].map((report, index) => (
+              {(recentReports.length ? recentReports : [
+                { id: 'seed-1', templateId: '', name: 'No reports in database yet', date: new Date().toISOString(), format: '—', status: 'sent' as const },
+              ]).map((report) => (
                 <div
-                  key={index}
+                  key={report.id}
                   className="flex items-center justify-between p-4 border border-border rounded-lg hover:bg-secondary/50 transition-colors"
                 >
                   <div className="flex items-center gap-4">
@@ -305,11 +648,20 @@ export default function Reports() {
                     <div>
                       <p className="font-medium">{report.name}</p>
                       <p className="text-sm text-muted-foreground">
-                        Generated on {new Date(report.date).toLocaleDateString()} • {report.format}
+                        {new Date(report.date).toLocaleDateString()} • {report.format} • {report.status}
                       </p>
                     </div>
                   </div>
-                  <Button variant="ghost" size="icon" onClick={() => handleExport(report.name)}>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    disabled={isGenerating || !report.templateId}
+                    onClick={() => {
+                      if (report.templateId) {
+                        handleExport(report.templateId);
+                      }
+                    }}
+                  >
                     <Download className="w-4 h-4" />
                   </Button>
                 </div>

@@ -365,10 +365,24 @@ export const adminAnalyticsOverview = async (req, res) => {
     ? Number((teamRows.reduce((acc, t) => acc + Number(t.marketValue || 0), 0) / teamRows.length).toFixed(2))
     : 0;
 
+  const riskBuckets = { low: 0, medium: 0, high: 0 };
+  latestRiskRows.forEach((row) => {
+    const explicitLevel = String(row.riskLevel || '').toLowerCase();
+    if (explicitLevel === 'low' || explicitLevel === 'medium' || explicitLevel === 'high') {
+      riskBuckets[explicitLevel] += 1;
+      return;
+    }
+
+    const probability = Number(row.riskProbability || 0);
+    if (probability >= 0.6) riskBuckets.high += 1;
+    else if (probability >= 0.35) riskBuckets.medium += 1;
+    else riskBuckets.low += 1;
+  });
+
   const injuryDistribution = [
-    { name: 'Low Risk', value: teamRows.filter((t) => t.injuries === 0).length },
-    { name: 'Medium Risk', value: teamRows.filter((t) => t.injuries > 0 && t.injuries <= 2).length },
-    { name: 'High Risk', value: teamRows.filter((t) => t.injuries > 2).length },
+    { name: 'Low Risk', value: riskBuckets.low },
+    { name: 'Medium Risk', value: riskBuckets.medium },
+    { name: 'High Risk', value: riskBuckets.high },
   ];
 
   return res.json({
@@ -507,4 +521,124 @@ export const queueReportEmail = async (req, res) => {
     requestId: String(request._id),
     status: request.status,
   });
+};
+
+export const createReportRequest = async (req, res) => {
+  const { templateId, format = 'pdf', dateRange = 'month', startDate, endDate, status = 'sent' } = req.body || {};
+  if (!templateId) return res.status(400).json({ error: 'templateId is required' });
+
+  const allowedStatus = ['queued', 'sent', 'failed'];
+  const normalizedStatus = allowedStatus.includes(String(status)) ? String(status) : 'sent';
+
+  const request = await ReportEmailRequest.create({
+    userId: req.user._id,
+    clubId: req.user.clubId || null,
+    templateId: String(templateId),
+    format: String(format),
+    dateRange: String(dateRange),
+    startDate: startDate ? new Date(startDate) : null,
+    endDate: endDate ? new Date(endDate) : null,
+    status: normalizedStatus,
+  });
+
+  return res.status(201).json({
+    message: 'Report request saved',
+    request: {
+      id: String(request._id),
+      templateId: request.templateId,
+      format: request.format,
+      dateRange: request.dateRange,
+      startDate: request.startDate,
+      endDate: request.endDate,
+      status: request.status,
+      createdAt: request.createdAt,
+    },
+  });
+};
+
+export const listRecentReportRequests = async (req, res) => {
+  const filter = req.user.role === 'admin' ? {} : { userId: req.user._id };
+  const requests = await ReportEmailRequest.find(filter)
+    .sort({ createdAt: -1 })
+    .limit(25)
+    .populate('userId', 'name email');
+
+  const rows = requests.map((row) => ({
+    id: String(row._id),
+    templateId: row.templateId,
+    format: row.format,
+    dateRange: row.dateRange,
+    startDate: row.startDate,
+    endDate: row.endDate,
+    status: row.status,
+    createdAt: row.createdAt,
+    requestedBy: row.userId
+      ? {
+          id: String(row.userId._id),
+          name: row.userId.name || 'Unknown',
+          email: row.userId.email || 'unknown@example.com',
+        }
+      : null,
+  }));
+
+  return res.json({ requests: rows });
+};
+
+export const teamPerformancePlayersReport = async (req, res) => {
+  const playersFilter = req.user.role === 'admin' ? {} : { clubId: req.user.clubId };
+  const players = await Player.find(playersFilter)
+    .select('name globalId age position teamName shirtNumber stats physical')
+    .sort({ name: 1 })
+    .lean();
+
+  const playerIds = players.map((p) => p._id).filter(Boolean);
+  const latestStats = await PlayerMatchStat.aggregate([
+    { $match: { playerId: { $in: playerIds } } },
+    { $sort: { createdAt: -1 } },
+    { $group: { _id: '$playerId', doc: { $first: '$$ROOT' } } },
+    { $replaceRoot: { newRoot: '$doc' } },
+  ]);
+
+  const latestByPlayerId = new Map(latestStats.map((row) => [String(row.playerId), row]));
+
+  const rows = players.map((player) => {
+    const latest = latestByPlayerId.get(String(player._id));
+    return {
+      id: String(player._id),
+      globalId: player.globalId || null,
+      name: player.name || 'Unknown',
+      age: player.age || 0,
+      position: player.position || 'N/A',
+      teamName: player.teamName || 'N/A',
+      shirtNumber: player.shirtNumber || null,
+      stats: {
+        matches: Number(player.stats?.matches || 0),
+        goals: Number(player.stats?.goals || 0),
+        assists: Number(player.stats?.assists || 0),
+        tackles: Number(player.stats?.tackles || 0),
+        interceptions: Number(player.stats?.interceptions || 0),
+        minutesPlayed: Number(player.stats?.minutesPlayed || 0),
+      },
+      physical: {
+        height: Number(player.physical?.height || 0),
+        weight: Number(player.physical?.weight || 0),
+        sprintSpeed: Number(player.physical?.sprintSpeed || 0),
+        stamina: Number(player.physical?.stamina || 0),
+        strength: Number(player.physical?.strength || 0),
+      },
+      latestMetrics: latest
+        ? {
+            distanceM: Number(latest.metrics?.distanceM || 0),
+            hsrM: Number(latest.metrics?.hsrM || 0),
+            riskScore: Number(latest.metrics?.riskScore || 0),
+            injuryProbability: Number(latest.metrics?.injuryProbability || 0),
+            goals: Number(latest.metrics?.goals || 0),
+            assists: Number(latest.metrics?.assists || 0),
+            createdAt: latest.createdAt,
+          }
+        : null,
+    };
+  });
+
+  return res.json({ players: rows });
 };

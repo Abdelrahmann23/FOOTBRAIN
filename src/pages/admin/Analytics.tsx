@@ -171,7 +171,7 @@ export default function Analytics() {
             <div className="flex items-center justify-between mb-4">
               <div>
                 <h3 className="font-semibold text-lg">Injury Risk Distribution</h3>
-                <p className="text-sm text-muted-foreground">Teams by risk level</p>
+                <p className="text-sm text-muted-foreground">Players by latest risk level</p>
               </div>
               <Activity className="w-5 h-5 text-muted-foreground" />
             </div>

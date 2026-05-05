@@ -489,6 +489,90 @@ class ApiService {
       body: JSON.stringify(payload),
     });
   }
+
+  async createReportRequest(payload: {
+    templateId: string;
+    format: 'pdf' | 'excel' | 'csv';
+    dateRange: 'week' | 'month' | 'quarter' | 'year' | 'custom';
+    startDate?: string;
+    endDate?: string;
+    status?: 'queued' | 'sent' | 'failed';
+  }) {
+    return this.request<{
+      message: string;
+      request: {
+        id: string;
+        templateId: string;
+        format: string;
+        dateRange: string;
+        startDate?: string;
+        endDate?: string;
+        status: string;
+        createdAt: string;
+      };
+    }>('/reports/requests', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  }
+
+  async getRecentReportRequests() {
+    return this.request<{
+      requests: Array<{
+        id: string;
+        templateId: string;
+        format: string;
+        dateRange: string;
+        startDate?: string;
+        endDate?: string;
+        status: 'queued' | 'sent' | 'failed';
+        createdAt: string;
+        requestedBy?: { id: string; name: string; email: string } | null;
+      }>;
+    }>('/reports/requests', {
+      method: 'GET',
+    });
+  }
+
+  async getTeamPerformancePlayersReport() {
+    return this.request<{
+      players: Array<{
+        id: string;
+        globalId: number | null;
+        name: string;
+        age: number;
+        position: string;
+        teamName: string;
+        shirtNumber: number | null;
+        stats: {
+          matches: number;
+          goals: number;
+          assists: number;
+          tackles: number;
+          interceptions: number;
+          minutesPlayed: number;
+        };
+        physical: {
+          height: number;
+          weight: number;
+          sprintSpeed: number;
+          stamina: number;
+          strength: number;
+        };
+        latestMetrics: {
+          distanceM: number;
+          hsrM: number;
+          riskScore: number;
+          injuryProbability: number;
+          goals: number;
+          assists: number;
+          createdAt: string;
+        } | null;
+      }>;
+    }>('/reports/team-performance/players', {
+      method: 'GET',
+    });
+  }
 }
 
 export const apiService = new ApiService();
