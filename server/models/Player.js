@@ -14,6 +14,10 @@ const statsSchema = new mongoose.Schema(
     savePerMatch: { type: Number, default: 0 },
     goalsConceded: { type: Number, default: 0 },
     penaltiesSaved: { type: Number, default: 0 },
+    distanceCoveredKm: { type: Number, default: 0 },
+    maxSpeedKmh: { type: Number, default: 0 },
+    sprintCount: { type: Number, default: 0 },
+    hsrM: { type: Number, default: 0 },
   },
   { _id: false }
 );

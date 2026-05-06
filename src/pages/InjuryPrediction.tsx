@@ -22,58 +22,20 @@ const defaultPhysical = {
 };
 
 type InjuryInputs = typeof defaultPhysical;
-type InjuryInputsByPlayer = Record<string, InjuryInputs>;
-const INJURY_INPUTS_STORAGE_PREFIX = 'injuryInputsByPlayer:';
 
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
 
-const buildUniqueInjuryInputs = (player: PlayerData): InjuryInputs => {
-  // Deterministic seed from player identity so each player keeps a stable unique profile.
-  const seedText = `${player.id}-${player.name}-${player.position}-${player.age}`;
-  const seed = seedText.split('').reduce((acc, ch) => acc + ch.charCodeAt(0), 0);
-
-  const seededRange = (min: number, max: number, offset: number) => {
-    const span = max - min;
-    if (span <= 0) return min;
-    const value = min + ((seed * (offset + 3) + offset * 97) % (span + 1));
-    return value;
-  };
-
-  const baseMinutes = clamp(player.stats?.minutesPlayed ?? defaultPhysical.minutes_played, 90, 1500);
-  const sprintSpeed = player.physical?.sprintSpeed ?? 32;
-  const stamina = player.physical?.stamina ?? 70;
-  const strength = player.physical?.strength ?? 70;
-
-  const distanceCoveredKm = clamp(
-    Number((baseMinutes * (0.11 + stamina / 1200) + seededRange(2, 24, 1) / 10).toFixed(1)),
-    8,
-    250,
-  );
-  const maxSpeedKmh = clamp(
-    Number((sprintSpeed * 0.45 + 18 + seededRange(0, 25, 2) / 10).toFixed(1)),
-    20,
-    45,
-  );
-  const sprintCount = clamp(
-    Math.round(baseMinutes / 3.6 + stamina * 2.2 + seededRange(0, 170, 3)),
-    20,
-    800,
-  );
-  const hsrM = clamp(
-    Math.round(distanceCoveredKm * (58 + sprintSpeed * 0.9 + strength * 0.25) + seededRange(0, 900, 4)),
-    800,
-    20000,
-  );
-
+const buildPlayerInjuryInputs = (player: PlayerData): InjuryInputs => {
+  // Use database values for all injury-model inputs.
   return {
     age: clamp(player.age ?? defaultPhysical.age, 16, 45),
     height: clamp(player.physical?.height ?? defaultPhysical.height, 150, 220),
     weight: clamp(player.physical?.weight ?? defaultPhysical.weight, 50, 120),
-    minutes_played: baseMinutes,
-    distance_covered_km: distanceCoveredKm,
-    max_speed_kmh: maxSpeedKmh,
-    sprint_count: sprintCount,
-    hsr_m: hsrM,
+    minutes_played: clamp(player.stats?.minutesPlayed ?? defaultPhysical.minutes_played, 0, 1500),
+    distance_covered_km: clamp(player.stats?.distanceCoveredKm ?? defaultPhysical.distance_covered_km, 0, 250),
+    max_speed_kmh: clamp(player.stats?.maxSpeedKmh ?? defaultPhysical.max_speed_kmh, 0, 50),
+    sprint_count: clamp(player.stats?.sprintCount ?? defaultPhysical.sprint_count, 0, 800),
+    hsr_m: clamp(player.stats?.hsrM ?? defaultPhysical.hsr_m, 0, 20000),
   };
 };
 
@@ -94,28 +56,8 @@ export default function InjuryPrediction() {
   const [sprintCount, setSprintCount] = useState(defaultPhysical.sprint_count);
   const [hsrM, setHsrM] = useState(defaultPhysical.hsr_m);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [savedInputsByPlayer, setSavedInputsByPlayer] = useState<InjuryInputsByPlayer>({});
 
   const bmi = height && weight ? (weight / Math.pow(height / 100, 2)).toFixed(1) : '—';
-
-  // Load players and pre-fill physical from selected player
-  useEffect(() => {
-    if (!user?.email) {
-      setSavedInputsByPlayer({});
-      return;
-    }
-    try {
-      const raw = localStorage.getItem(`${INJURY_INPUTS_STORAGE_PREFIX}${user.email}`);
-      if (!raw) {
-        setSavedInputsByPlayer({});
-        return;
-      }
-      const parsed = JSON.parse(raw) as InjuryInputsByPlayer;
-      setSavedInputsByPlayer(parsed && typeof parsed === 'object' ? parsed : {});
-    } catch {
-      setSavedInputsByPlayer({});
-    }
-  }, [user?.email]);
 
   useEffect(() => {
     const fetchPlayers = async () => {
@@ -139,7 +81,7 @@ export default function InjuryPrediction() {
 
   useEffect(() => {
     if (!selectedPlayer) return;
-    const injuryInputs = savedInputsByPlayer[selectedPlayer.id] ?? buildUniqueInjuryInputs(selectedPlayer);
+    const injuryInputs = buildPlayerInjuryInputs(selectedPlayer);
     setAge(injuryInputs.age);
     setHeight(injuryInputs.height);
     setWeight(injuryInputs.weight);
@@ -148,35 +90,7 @@ export default function InjuryPrediction() {
     setMaxSpeedKmh(injuryInputs.max_speed_kmh);
     setSprintCount(injuryInputs.sprint_count);
     setHsrM(injuryInputs.hsr_m);
-  }, [selectedPlayer, savedInputsByPlayer]);
-
-  const saveCurrentPlayerInputs = (next: Partial<InjuryInputs>) => {
-    if (!selectedPlayer || !user?.email) return;
-    const current: InjuryInputs = {
-      age,
-      height,
-      weight,
-      minutes_played: minutesPlayed,
-      distance_covered_km: distanceCoveredKm,
-      max_speed_kmh: maxSpeedKmh,
-      sprint_count: sprintCount,
-      hsr_m: hsrM,
-    };
-    const merged: InjuryInputs = { ...current, ...next };
-    const updatedMap: InjuryInputsByPlayer = {
-      ...savedInputsByPlayer,
-      [selectedPlayer.id]: merged,
-    };
-    setSavedInputsByPlayer(updatedMap);
-    try {
-      localStorage.setItem(
-        `${INJURY_INPUTS_STORAGE_PREFIX}${user.email}`,
-        JSON.stringify(updatedMap),
-      );
-    } catch {
-      // Ignore quota/storage errors and keep in-memory state.
-    }
-  };
+  }, [selectedPlayer]);
 
   const runPrediction = async () => {
     setIsLoading(true);
@@ -267,7 +181,6 @@ export default function InjuryPrediction() {
                     onChange={(e) => {
                       const value = Number(e.target.value) || 0;
                       setAge(value);
-                      saveCurrentPlayerInputs({ age: value });
                     }}
                     className="mt-1"
                   />
@@ -282,7 +195,6 @@ export default function InjuryPrediction() {
                     onChange={(e) => {
                       const value = Number(e.target.value) || 0;
                       setHeight(value);
-                      saveCurrentPlayerInputs({ height: value });
                     }}
                     className="mt-1"
                   />
@@ -297,7 +209,6 @@ export default function InjuryPrediction() {
                     onChange={(e) => {
                       const value = Number(e.target.value) || 0;
                       setWeight(value);
-                      saveCurrentPlayerInputs({ weight: value });
                     }}
                     className="mt-1"
                   />
@@ -315,7 +226,6 @@ export default function InjuryPrediction() {
                     onChange={(e) => {
                       const value = Number(e.target.value) || 0;
                       setMinutesPlayed(value);
-                      saveCurrentPlayerInputs({ minutes_played: value });
                     }}
                     className="mt-1"
                   />
@@ -331,7 +241,6 @@ export default function InjuryPrediction() {
                     onChange={(e) => {
                       const value = Number(e.target.value) || 0;
                       setDistanceCoveredKm(value);
-                      saveCurrentPlayerInputs({ distance_covered_km: value });
                     }}
                     className="mt-1"
                   />
@@ -347,7 +256,6 @@ export default function InjuryPrediction() {
                     onChange={(e) => {
                       const value = Number(e.target.value) || 0;
                       setMaxSpeedKmh(value);
-                      saveCurrentPlayerInputs({ max_speed_kmh: value });
                     }}
                     className="mt-1"
                   />
@@ -362,7 +270,6 @@ export default function InjuryPrediction() {
                     onChange={(e) => {
                       const value = Number(e.target.value) || 0;
                       setSprintCount(value);
-                      saveCurrentPlayerInputs({ sprint_count: value });
                     }}
                     className="mt-1"
                   />
@@ -377,7 +284,6 @@ export default function InjuryPrediction() {
                     onChange={(e) => {
                       const value = Number(e.target.value) || 0;
                       setHsrM(value);
-                      saveCurrentPlayerInputs({ hsr_m: value });
                     }}
                     className="mt-1"
                   />

@@ -32,6 +32,10 @@ const mapPlayerToClient = (playerDoc) => ({
     savePerMatch: playerDoc.stats?.savePerMatch ?? 0,
     goalsConceded: playerDoc.stats?.goalsConceded ?? 0,
     penaltiesSaved: playerDoc.stats?.penaltiesSaved ?? 0,
+    distanceCoveredKm: playerDoc.stats?.distanceCoveredKm ?? 0,
+    maxSpeedKmh: playerDoc.stats?.maxSpeedKmh ?? 0,
+    sprintCount: playerDoc.stats?.sprintCount ?? 0,
+    hsrM: playerDoc.stats?.hsrM ?? 0,
   },
   physical: {
     height: playerDoc.physical?.height ?? 0,
@@ -189,6 +193,10 @@ export const bulkSetupPlayers = async (req, res) => {
         savePerMatch: Number(p.savePerMatch || p.save_per_match || p.stats?.savePerMatch || p.stats?.save_per_match || 0),
         goalsConceded: Number(p.goalsConceded || p.goals_conceded || p.stats?.goalsConceded || p.stats?.goals_conceded || 0),
         penaltiesSaved: Number(p.penaltiesSaved || p.penalties_saved || p.stats?.penaltiesSaved || p.stats?.penalties_saved || 0),
+        distanceCoveredKm: Number(p.distanceCoveredKm || p.distance_covered_km || p.stats?.distanceCoveredKm || p.stats?.distance_covered_km || 0),
+        maxSpeedKmh: Number(p.maxSpeedKmh || p.max_speed_kmh || p.stats?.maxSpeedKmh || p.stats?.max_speed_kmh || 0),
+        sprintCount: Number(p.sprintCount || p.sprint_count || p.stats?.sprintCount || p.stats?.sprint_count || 0),
+        hsrM: Number(p.hsrM || p.hsr_m || p.stats?.hsrM || p.stats?.hsr_m || 0),
       },
     }));
 

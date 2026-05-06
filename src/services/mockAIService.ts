@@ -25,6 +25,10 @@ export interface PlayerData {
     savePerMatch?: number;
     goalsConceded?: number;
     penaltiesSaved?: number;
+    distanceCoveredKm?: number;
+    maxSpeedKmh?: number;
+    sprintCount?: number;
+    hsrM?: number;
   };
   physical: {
     height: number;

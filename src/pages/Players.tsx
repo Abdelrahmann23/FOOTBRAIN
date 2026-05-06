@@ -57,6 +57,10 @@ export default function Players() {
     savePerMatch: '',
     goalsConceded: '',
     penaltiesSaved: '',
+    distanceCoveredKm: '',
+    maxSpeedKmh: '',
+    sprintCount: '',
+    hsrM: '',
     height: '',
     weight: '',
     sprintSpeed: '',
@@ -121,6 +125,10 @@ export default function Players() {
         savePerMatch: '',
         goalsConceded: '',
         penaltiesSaved: '',
+        distanceCoveredKm: '',
+        maxSpeedKmh: '',
+        sprintCount: '',
+        hsrM: '',
         height: '',
         weight: '',
         sprintSpeed: '',
@@ -182,6 +190,10 @@ export default function Players() {
           savePerMatch: parseFloat(formData.savePerMatch) || 0,
           goalsConceded: parseInt(formData.goalsConceded) || 0,
           penaltiesSaved: parseInt(formData.penaltiesSaved) || 0,
+          distanceCoveredKm: parseFloat(formData.distanceCoveredKm) || 0,
+          maxSpeedKmh: parseFloat(formData.maxSpeedKmh) || 0,
+          sprintCount: parseInt(formData.sprintCount) || 0,
+          hsrM: parseInt(formData.hsrM) || 0,
         },
         physical: {
           height: parseInt(formData.height) || 0,
@@ -228,6 +240,10 @@ export default function Players() {
         savePerMatch: '',
         goalsConceded: '',
         penaltiesSaved: '',
+        distanceCoveredKm: '',
+        maxSpeedKmh: '',
+        sprintCount: '',
+        hsrM: '',
         height: '',
         weight: '',
         sprintSpeed: '',
@@ -279,6 +295,10 @@ export default function Players() {
       savePerMatch: String(selectedPlayer.stats.savePerMatch || 0),
       goalsConceded: String(selectedPlayer.stats.goalsConceded || 0),
       penaltiesSaved: String(selectedPlayer.stats.penaltiesSaved || 0),
+      distanceCoveredKm: String(selectedPlayer.stats.distanceCoveredKm || 0),
+      maxSpeedKmh: String(selectedPlayer.stats.maxSpeedKmh || 0),
+      sprintCount: String(selectedPlayer.stats.sprintCount || 0),
+      hsrM: String(selectedPlayer.stats.hsrM || 0),
       height: String(selectedPlayer.physical.height || 0),
       weight: String(selectedPlayer.physical.weight || 0),
       sprintSpeed: String(selectedPlayer.physical.sprintSpeed || 0),
@@ -446,6 +466,10 @@ export default function Players() {
                           { label: 'Save/Match', value: selectedPlayer.stats.savePerMatch ?? 0 },
                           { label: 'Goals Conceded', value: selectedPlayer.stats.goalsConceded ?? 0 },
                           { label: 'Penalties Saved', value: selectedPlayer.stats.penaltiesSaved ?? 0 },
+                          { label: 'Distance (km)', value: selectedPlayer.stats.distanceCoveredKm ?? 0 },
+                          { label: 'Max Speed (km/h)', value: selectedPlayer.stats.maxSpeedKmh ?? 0 },
+                          { label: 'Sprint Count', value: selectedPlayer.stats.sprintCount ?? 0 },
+                          { label: 'HSR (m)', value: selectedPlayer.stats.hsrM ?? 0 },
                         ]
                       : [
                           { label: 'Matches', value: selectedPlayer.stats.matches },
@@ -454,6 +478,10 @@ export default function Players() {
                           { label: 'Minutes', value: selectedPlayer.stats.minutesPlayed },
                           { label: 'Tackles', value: selectedPlayer.stats.tackles ?? 0 },
                           { label: 'Interceptions', value: selectedPlayer.stats.interceptions ?? 0 },
+                          { label: 'Distance (km)', value: selectedPlayer.stats.distanceCoveredKm ?? 0 },
+                          { label: 'Max Speed (km/h)', value: selectedPlayer.stats.maxSpeedKmh ?? 0 },
+                          { label: 'Sprint Count', value: selectedPlayer.stats.sprintCount ?? 0 },
+                          { label: 'HSR (m)', value: selectedPlayer.stats.hsrM ?? 0 },
                         ]).map((stat) => (
                       <div key={stat.label} className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-3">
                         <p className="text-[11px] uppercase tracking-wide text-emerald-100/80">{stat.label}</p>
@@ -805,6 +833,48 @@ export default function Players() {
                       placeholder="1"
                       value={formData.injuries}
                       onChange={(e) => setFormData({ ...formData, injuries: e.target.value })}
+                    />
+                  </div>
+                  <div className="grid gap-2">
+                    <Label htmlFor="distanceCoveredKm">Distance Covered (km)</Label>
+                    <Input
+                      id="distanceCoveredKm"
+                      type="number"
+                      step="0.1"
+                      placeholder="130"
+                      value={formData.distanceCoveredKm}
+                      onChange={(e) => setFormData({ ...formData, distanceCoveredKm: e.target.value })}
+                    />
+                  </div>
+                  <div className="grid gap-2">
+                    <Label htmlFor="maxSpeedKmh">Max Speed (km/h)</Label>
+                    <Input
+                      id="maxSpeedKmh"
+                      type="number"
+                      step="0.1"
+                      placeholder="35.5"
+                      value={formData.maxSpeedKmh}
+                      onChange={(e) => setFormData({ ...formData, maxSpeedKmh: e.target.value })}
+                    />
+                  </div>
+                  <div className="grid gap-2">
+                    <Label htmlFor="sprintCount">Sprint Count</Label>
+                    <Input
+                      id="sprintCount"
+                      type="number"
+                      placeholder="310"
+                      value={formData.sprintCount}
+                      onChange={(e) => setFormData({ ...formData, sprintCount: e.target.value })}
+                    />
+                  </div>
+                  <div className="grid gap-2">
+                    <Label htmlFor="hsrM">HSR (m)</Label>
+                    <Input
+                      id="hsrM"
+                      type="number"
+                      placeholder="8500"
+                      value={formData.hsrM}
+                      onChange={(e) => setFormData({ ...formData, hsrM: e.target.value })}
                     />
                   </div>
                 </div>

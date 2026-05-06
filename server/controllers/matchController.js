@@ -248,6 +248,14 @@ async function applyMatchFinalization(req, match) {
         'stats.tackles': metrics.tackles,
         'stats.interceptions': metrics.interceptions,
         'stats.minutesPlayed': metrics.minutesPlayed,
+        // CV workload metrics persisted on player profile for injury model inputs.
+        'stats.distanceCoveredKm': metrics.distanceM / 1000,
+        'stats.sprintCount': metrics.sprints,
+        'stats.hsrM': metrics.hsrM,
+      },
+      $max: {
+        // Keep best observed top speed from analyzed matches.
+        'stats.maxSpeedKmh': metrics.maxSpeed,
       },
     });
 
