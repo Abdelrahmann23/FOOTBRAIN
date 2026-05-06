@@ -262,28 +262,6 @@ export default function MarketValue() {
                   </div>
                 </div>
 
-                {/* Comparable Players */}
-                <div className="stat-card">
-                  <h3 className="font-semibold mb-4">Comparable Players</h3>
-                  <div className="space-y-3">
-                    {prediction.comparablePlayers.map((player, index) => (
-                      <div 
-                        key={index}
-                        className="flex items-center justify-between p-3 rounded-lg bg-secondary/50"
-                      >
-                        <div>
-                          <p className="font-medium text-sm">{player.name}</p>
-                          <p className="text-xs text-muted-foreground">
-                            Similarity: {(player.similarity * 100).toFixed(0)}%
-                          </p>
-                        </div>
-                        <span className="font-mono font-bold text-primary">
-                          {formatValue(player.value)}
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
               </>
             )}
           </div>

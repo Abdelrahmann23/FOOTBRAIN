@@ -52,6 +52,11 @@ export default function Players() {
     interceptions: '',
     minutesPlayed: '',
     injuries: '',
+    saves: '',
+    cleanSheets: '',
+    savePerMatch: '',
+    goalsConceded: '',
+    penaltiesSaved: '',
     height: '',
     weight: '',
     sprintSpeed: '',
@@ -61,6 +66,7 @@ export default function Players() {
   });
 
   const [imageInputMode, setImageInputMode] = useState<'url' | 'upload'>('url');
+  const isGoalkeeperForm = formData.position.toLowerCase() === 'goalkeeper';
 
   // Load players for the current user's team from the backend
   useEffect(() => {
@@ -110,6 +116,11 @@ export default function Players() {
         interceptions: '',
         minutesPlayed: '',
         injuries: '',
+        saves: '',
+        cleanSheets: '',
+        savePerMatch: '',
+        goalsConceded: '',
+        penaltiesSaved: '',
         height: '',
         weight: '',
         sprintSpeed: '',
@@ -166,6 +177,11 @@ export default function Players() {
           interceptions: parseInt(formData.interceptions) || 0,
           minutesPlayed: parseInt(formData.minutesPlayed) || 0,
           injuries: parseInt(formData.injuries) || 0,
+          saves: parseInt(formData.saves) || 0,
+          cleanSheets: parseInt(formData.cleanSheets) || 0,
+          savePerMatch: parseFloat(formData.savePerMatch) || 0,
+          goalsConceded: parseInt(formData.goalsConceded) || 0,
+          penaltiesSaved: parseInt(formData.penaltiesSaved) || 0,
         },
         physical: {
           height: parseInt(formData.height) || 0,
@@ -207,6 +223,11 @@ export default function Players() {
         interceptions: '',
         minutesPlayed: '',
         injuries: '',
+        saves: '',
+        cleanSheets: '',
+        savePerMatch: '',
+        goalsConceded: '',
+        penaltiesSaved: '',
         height: '',
         weight: '',
         sprintSpeed: '',
@@ -253,6 +274,11 @@ export default function Players() {
       interceptions: String(selectedPlayer.stats.interceptions || 0),
       minutesPlayed: String(selectedPlayer.stats.minutesPlayed || 0),
       injuries: String(selectedPlayer.stats.injuries || 0),
+      saves: String(selectedPlayer.stats.saves || 0),
+      cleanSheets: String(selectedPlayer.stats.cleanSheets || 0),
+      savePerMatch: String(selectedPlayer.stats.savePerMatch || 0),
+      goalsConceded: String(selectedPlayer.stats.goalsConceded || 0),
+      penaltiesSaved: String(selectedPlayer.stats.penaltiesSaved || 0),
       height: String(selectedPlayer.physical.height || 0),
       weight: String(selectedPlayer.physical.weight || 0),
       sprintSpeed: String(selectedPlayer.physical.sprintSpeed || 0),
@@ -411,14 +437,24 @@ export default function Players() {
                 <div className="stat-card border-emerald-500/30 bg-emerald-500/[0.04]">
                   <h3 className="font-semibold mb-4">Performance Stats</h3>
                   <div className="grid grid-cols-2 gap-3">
-                    {[
-                      { label: 'Matches', value: selectedPlayer.stats.matches },
-                      { label: 'Goals', value: selectedPlayer.stats.goals },
-                      { label: 'Assists', value: selectedPlayer.stats.assists },
-                      { label: 'Minutes', value: selectedPlayer.stats.minutesPlayed },
-                      { label: 'Tackles', value: selectedPlayer.stats.tackles ?? 0 },
-                      { label: 'Interceptions', value: selectedPlayer.stats.interceptions ?? 0 },
-                    ].map((stat) => (
+                    {((selectedPlayer.position || '').toLowerCase() === 'goalkeeper'
+                      ? [
+                          { label: 'Matches', value: selectedPlayer.stats.matches },
+                          { label: 'Minutes', value: selectedPlayer.stats.minutesPlayed },
+                          { label: 'Saves', value: selectedPlayer.stats.saves ?? 0 },
+                          { label: 'Clean Sheets', value: selectedPlayer.stats.cleanSheets ?? 0 },
+                          { label: 'Save/Match', value: selectedPlayer.stats.savePerMatch ?? 0 },
+                          { label: 'Goals Conceded', value: selectedPlayer.stats.goalsConceded ?? 0 },
+                          { label: 'Penalties Saved', value: selectedPlayer.stats.penaltiesSaved ?? 0 },
+                        ]
+                      : [
+                          { label: 'Matches', value: selectedPlayer.stats.matches },
+                          { label: 'Goals', value: selectedPlayer.stats.goals },
+                          { label: 'Assists', value: selectedPlayer.stats.assists },
+                          { label: 'Minutes', value: selectedPlayer.stats.minutesPlayed },
+                          { label: 'Tackles', value: selectedPlayer.stats.tackles ?? 0 },
+                          { label: 'Interceptions', value: selectedPlayer.stats.interceptions ?? 0 },
+                        ]).map((stat) => (
                       <div key={stat.label} className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-3">
                         <p className="text-[11px] uppercase tracking-wide text-emerald-100/80">{stat.label}</p>
                         <p className="font-mono text-xl font-bold text-emerald-300">{stat.value}</p>
@@ -649,26 +685,30 @@ export default function Players() {
                       onChange={(e) => setFormData({ ...formData, matches: e.target.value })}
                     />
                   </div>
-                  <div className="grid gap-2">
-                    <Label htmlFor="goals">Goals</Label>
-                    <Input
-                      id="goals"
-                      type="number"
-                      placeholder="22"
-                      value={formData.goals}
-                      onChange={(e) => setFormData({ ...formData, goals: e.target.value })}
-                    />
-                  </div>
-                  <div className="grid gap-2">
-                    <Label htmlFor="assists">Assists</Label>
-                    <Input
-                      id="assists"
-                      type="number"
-                      placeholder="8"
-                      value={formData.assists}
-                      onChange={(e) => setFormData({ ...formData, assists: e.target.value })}
-                    />
-                  </div>
+                  {!isGoalkeeperForm && (
+                    <>
+                      <div className="grid gap-2">
+                        <Label htmlFor="goals">Goals</Label>
+                        <Input
+                          id="goals"
+                          type="number"
+                          placeholder="22"
+                          value={formData.goals}
+                          onChange={(e) => setFormData({ ...formData, goals: e.target.value })}
+                        />
+                      </div>
+                      <div className="grid gap-2">
+                        <Label htmlFor="assists">Assists</Label>
+                        <Input
+                          id="assists"
+                          type="number"
+                          placeholder="8"
+                          value={formData.assists}
+                          onChange={(e) => setFormData({ ...formData, assists: e.target.value })}
+                        />
+                      </div>
+                    </>
+                  )}
                   <div className="grid gap-2">
                     <Label htmlFor="minutesPlayed">Minutes Played</Label>
                     <Input
@@ -679,26 +719,84 @@ export default function Players() {
                       onChange={(e) => setFormData({ ...formData, minutesPlayed: e.target.value })}
                     />
                   </div>
-                  <div className="grid gap-2">
-                    <Label htmlFor="tackles">Tackles</Label>
-                    <Input
-                      id="tackles"
-                      type="number"
-                      placeholder="68"
-                      value={formData.tackles}
-                      onChange={(e) => setFormData({ ...formData, tackles: e.target.value })}
-                    />
-                  </div>
-                  <div className="grid gap-2">
-                    <Label htmlFor="interceptions">Interceptions</Label>
-                    <Input
-                      id="interceptions"
-                      type="number"
-                      placeholder="54"
-                      value={formData.interceptions}
-                      onChange={(e) => setFormData({ ...formData, interceptions: e.target.value })}
-                    />
-                  </div>
+                  {isGoalkeeperForm ? (
+                    <>
+                      <div className="grid gap-2">
+                        <Label htmlFor="saves">Saves</Label>
+                        <Input
+                          id="saves"
+                          type="number"
+                          placeholder="60"
+                          value={formData.saves}
+                          onChange={(e) => setFormData({ ...formData, saves: e.target.value })}
+                        />
+                      </div>
+                      <div className="grid gap-2">
+                        <Label htmlFor="cleanSheets">Clean Sheets</Label>
+                        <Input
+                          id="cleanSheets"
+                          type="number"
+                          placeholder="20"
+                          value={formData.cleanSheets}
+                          onChange={(e) => setFormData({ ...formData, cleanSheets: e.target.value })}
+                        />
+                      </div>
+                      <div className="grid gap-2">
+                        <Label htmlFor="savePerMatch">Save per Match</Label>
+                        <Input
+                          id="savePerMatch"
+                          type="number"
+                          step="0.01"
+                          placeholder="5"
+                          value={formData.savePerMatch}
+                          onChange={(e) => setFormData({ ...formData, savePerMatch: e.target.value })}
+                        />
+                      </div>
+                      <div className="grid gap-2">
+                        <Label htmlFor="goalsConceded">Goals Conceded</Label>
+                        <Input
+                          id="goalsConceded"
+                          type="number"
+                          placeholder="32"
+                          value={formData.goalsConceded}
+                          onChange={(e) => setFormData({ ...formData, goalsConceded: e.target.value })}
+                        />
+                      </div>
+                      <div className="grid gap-2">
+                        <Label htmlFor="penaltiesSaved">Penalties Saved</Label>
+                        <Input
+                          id="penaltiesSaved"
+                          type="number"
+                          placeholder="7"
+                          value={formData.penaltiesSaved}
+                          onChange={(e) => setFormData({ ...formData, penaltiesSaved: e.target.value })}
+                        />
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <div className="grid gap-2">
+                        <Label htmlFor="tackles">Tackles</Label>
+                        <Input
+                          id="tackles"
+                          type="number"
+                          placeholder="68"
+                          value={formData.tackles}
+                          onChange={(e) => setFormData({ ...formData, tackles: e.target.value })}
+                        />
+                      </div>
+                      <div className="grid gap-2">
+                        <Label htmlFor="interceptions">Interceptions</Label>
+                        <Input
+                          id="interceptions"
+                          type="number"
+                          placeholder="54"
+                          value={formData.interceptions}
+                          onChange={(e) => setFormData({ ...formData, interceptions: e.target.value })}
+                        />
+                      </div>
+                    </>
+                  )}
                   <div className="grid gap-2">
                     <Label htmlFor="injuries">Injuries</Label>
                     <Input

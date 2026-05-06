@@ -9,6 +9,11 @@ const statsSchema = new mongoose.Schema(
     interceptions: { type: Number, default: 0 },
     minutesPlayed: { type: Number, default: 0 },
     injuries: { type: Number, default: 0 },
+    saves: { type: Number, default: 0 },
+    cleanSheets: { type: Number, default: 0 },
+    savePerMatch: { type: Number, default: 0 },
+    goalsConceded: { type: Number, default: 0 },
+    penaltiesSaved: { type: Number, default: 0 },
   },
   { _id: false }
 );

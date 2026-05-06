@@ -20,6 +20,11 @@ export interface PlayerData {
     interceptions?: number;
     minutesPlayed: number;
     injuries: number;
+    saves?: number;
+    cleanSheets?: number;
+    savePerMatch?: number;
+    goalsConceded?: number;
+    penaltiesSaved?: number;
   };
   physical: {
     height: number;

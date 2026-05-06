@@ -27,6 +27,11 @@ const mapPlayerToClient = (playerDoc) => ({
     interceptions: playerDoc.stats?.interceptions ?? 0,
     minutesPlayed: playerDoc.stats?.minutesPlayed ?? 0,
     injuries: playerDoc.stats?.injuries ?? 0,
+    saves: playerDoc.stats?.saves ?? 0,
+    cleanSheets: playerDoc.stats?.cleanSheets ?? 0,
+    savePerMatch: playerDoc.stats?.savePerMatch ?? 0,
+    goalsConceded: playerDoc.stats?.goalsConceded ?? 0,
+    penaltiesSaved: playerDoc.stats?.penaltiesSaved ?? 0,
   },
   physical: {
     height: playerDoc.physical?.height ?? 0,
@@ -179,6 +184,11 @@ export const bulkSetupPlayers = async (req, res) => {
         interceptions: Number(p.interceptions || p.stats?.interceptions || p.interception || p.stats?.interception || 0),
         minutesPlayed: Number(p.minutesPlayed || p.stats?.minutesPlayed || 0),
         injuries: Number(p.injuries || p.stats?.injuries || 0),
+        saves: Number(p.saves || p.stats?.saves || 0),
+        cleanSheets: Number(p.cleanSheets || p.clean_sheets || p.stats?.cleanSheets || p.stats?.clean_sheets || 0),
+        savePerMatch: Number(p.savePerMatch || p.save_per_match || p.stats?.savePerMatch || p.stats?.save_per_match || 0),
+        goalsConceded: Number(p.goalsConceded || p.goals_conceded || p.stats?.goalsConceded || p.stats?.goals_conceded || 0),
+        penaltiesSaved: Number(p.penaltiesSaved || p.penalties_saved || p.stats?.penaltiesSaved || p.stats?.penalties_saved || 0),
       },
     }));
 

@@ -20,6 +20,16 @@ DEFENDER_MODEL_EXTERNAL = os.environ.get('DEFENDER_MODEL_PATH', r'C:\Users\Dell\
 defender_model = None
 defender_feature_names = None
 DEFENDER_DEFAULT_FEATURES = ['Age', 'Minutes_Played', 'Tackles', 'Interception', 'Goals', 'Assists']
+GOALKEEPER_MODEL_EXTERNAL = os.environ.get('GOALKEEPER_MODEL_PATH', r'C:\Users\Dell\Downloads\gk_model.pkl')
+GOALKEEPER_SCALER_EXTERNAL = os.environ.get('GOALKEEPER_SCALER_PATH', r'C:\Users\Dell\Downloads\scaler.pkl')
+# Calibrate GK output to your expected business scale (e.g., 9.77 -> ~35M).
+try:
+    GOALKEEPER_VALUE_MULTIPLIER = float(os.environ.get('GOALKEEPER_VALUE_MULTIPLIER', '3.58'))
+except Exception:
+    GOALKEEPER_VALUE_MULTIPLIER = 3.58
+goalkeeper_model = None
+goalkeeper_scaler = None
+goalkeeper_feature_names = None
 
 # --- Injury risk model (physical-attribute-based only) ---
 # Injury model must expect injury features (age, height, weight, bmi, hamstring, sprint_speed, training_hours).
@@ -100,6 +110,46 @@ def load_defender_model():
         print(f"[ERROR] Defender model failed to load: {e}")
         return False
 
+
+def load_goalkeeper_model():
+    """Load goalkeeper-specific market value model (+ optional scaler)."""
+    global goalkeeper_model, goalkeeper_scaler, goalkeeper_feature_names
+    goalkeeper_model = None
+    goalkeeper_scaler = None
+    goalkeeper_feature_names = None
+    if not os.path.isfile(GOALKEEPER_MODEL_EXTERNAL):
+        print(f"[WARN] Goalkeeper model not found at {GOALKEEPER_MODEL_EXTERNAL}")
+        return False
+    try:
+        with open(GOALKEEPER_MODEL_EXTERNAL, 'rb') as f:
+            goalkeeper_model = pickle.load(f)
+        if GOALKEEPER_SCALER_EXTERNAL and os.path.isfile(GOALKEEPER_SCALER_EXTERNAL):
+            try:
+                with open(GOALKEEPER_SCALER_EXTERNAL, 'rb') as sf:
+                    goalkeeper_scaler = pickle.load(sf)
+                print(f"[OK] Goalkeeper scaler loaded from {GOALKEEPER_SCALER_EXTERNAL}")
+            except Exception as se:
+                goalkeeper_scaler = None
+                print(f"[WARN] Goalkeeper scaler failed to load: {se}")
+        names = getattr(goalkeeper_model, 'feature_names_in_', None)
+        if names is None and goalkeeper_scaler is not None:
+            names = getattr(goalkeeper_scaler, 'feature_names_in_', None)
+        if names is None and hasattr(goalkeeper_model, 'get_booster'):
+            try:
+                names = goalkeeper_model.get_booster().feature_names
+            except Exception:
+                names = None
+        if names is not None:
+            goalkeeper_feature_names = [str(x).strip() for x in list(names)]
+        print(f"[OK] Goalkeeper market model loaded from {GOALKEEPER_MODEL_EXTERNAL}")
+        if goalkeeper_feature_names is not None:
+            print(f"   Goalkeeper features ({len(goalkeeper_feature_names)}): {goalkeeper_feature_names}")
+        return True
+    except Exception as e:
+        print(f"[ERROR] Goalkeeper model failed to load: {e}")
+        return False
+
+
 def load_injury_model():
     """Load the injury risk model. Uses f:\\miu\\xgboost_model.pkl or project models. Accepts any .pkl and maps our API (age, height, weight) to the model's expected columns."""
     global injury_model, injury_feature_names, injury_scaler
@@ -163,6 +213,7 @@ print("--- Market value (performance: goals, assists, shots...) ---")
 if not load_model():
     print("[WARN] Market value: not loaded. Fix: pip install scikit-learn==1.6.1 then restart.")
 load_defender_model()
+load_goalkeeper_model()
 print("--- Injury risk (physical: height, weight, age, BMI...) ---")
 load_injury_model()
 if injury_model is None:
@@ -177,6 +228,7 @@ def health():
         'status': 'ok',
         'model_loaded': model is not None,
         'defender_model_loaded': defender_model is not None,
+        'goalkeeper_model_loaded': goalkeeper_model is not None,
         'injury_model_loaded': injury_model is not None
     })
 
@@ -207,8 +259,147 @@ def predict_market_value():
     try:
         data = request.get_json() or {}
 
-        # Route defenders to defender-specific model
+        # Route goalkeepers to goalkeeper-specific model
         pos = str(data.get('Pos') or '').strip().lower()
+        is_goalkeeper = any(k in pos for k in ('gk', 'goalkeeper', 'goal keeper', 'keeper'))
+        if is_goalkeeper and goalkeeper_model is not None:
+            age = _float(data, 'age', _float(data, 'Age', 25))
+            height_cm = _float(data, 'height_cm', _float(data, 'Height_cm', _float(data, 'height', 180)))
+            weight_kg = _float(data, 'weight_kg', _float(data, 'Weight_kg', _float(data, 'weight', 75)))
+            matches_played = _float(data, 'matches_played', _float(data, 'Matches_Played', 0))
+            minutes = _float(data, 'minutes', _float(data, 'Minutes', _float(data, 'Minutes_Played', 0)))
+            saves = _float(data, 'saves', _float(data, 'Saves', 0))
+            clean_sheets = _float(data, 'clean_sheets', _float(data, 'Clean_Sheets', 0))
+            save_per_match_input = _float(data, 'save_per_match', _float(data, 'Save_Per_Match', 0))
+            goals_conceded = _float(data, 'goals_conceded', _float(data, 'Goals_Conceded', 0))
+            penalties_saved = _float(data, 'penalties_saved', _float(data, 'Penalties_Saved', 0))
+            # Respect provided save_per_match from the model input contract.
+            # Only auto-derive when it is not provided or zero.
+            save_per_match = save_per_match_input
+            if save_per_match <= 0 and matches_played > 0:
+                save_per_match = saves / matches_played
+
+            saves_per_90 = (saves / minutes) * 90.0 if minutes > 0 else 0.0
+            goals_per_match = (goals_conceded / matches_played) if matches_played > 0 else 0.0
+            clean_sheet_ratio = (clean_sheets / matches_played) if matches_played > 0 else 0.0
+            penalty_efficiency = penalties_saved / (matches_played + 1.0)
+
+            gk_row = {
+                'age': age,
+                'height_cm': height_cm,
+                'weight_kg': weight_kg,
+                'matches_played': matches_played,
+                'minutes': minutes,
+                'saves': saves,
+                'clean_sheets': clean_sheets,
+                'save_per_match': save_per_match,
+                'goals_conceded': goals_conceded,
+                'penalties_saved': penalties_saved,
+                'saves_per_90': saves_per_90,
+                'goals_per_match': goals_per_match,
+                'clean_sheet_ratio': clean_sheet_ratio,
+                'penalty_efficiency': penalty_efficiency,
+            }
+
+            def _gk_value(name):
+                key = str(name).strip().lower().replace(' ', '_').replace('-', '_')
+                if key in gk_row:
+                    return float(gk_row[key])
+                if 'save' in key and 'penalt' not in key:
+                    return float(saves)
+                if 'clean' in key and 'ratio' in key:
+                    return float(clean_sheet_ratio)
+                if 'clean' in key:
+                    return float(clean_sheets)
+                if 'goal' in key and 'per' in key:
+                    return float(goals_per_match)
+                if 'goal' in key:
+                    return float(goals_conceded)
+                if 'penalt' in key and 'eff' in key:
+                    return float(penalty_efficiency)
+                if 'penalt' in key:
+                    return float(penalties_saved)
+                if 'minute' in key:
+                    return float(minutes)
+                if 'match' in key:
+                    return float(matches_played)
+                if 'height' in key:
+                    return float(height_cm)
+                if 'weight' in key:
+                    return float(weight_kg)
+                if 'age' in key:
+                    return float(age)
+                return 0.0
+
+            feature_names = goalkeeper_feature_names or list(gk_row.keys())
+            X_gk = pd.DataFrame([[_gk_value(c) for c in feature_names]], columns=feature_names)
+            # Most GK models are trained exactly like your sample:
+            # xgb.predict(test_gk) on unscaled engineered features.
+            # So prefer unscaled prediction first, then try scaled as fallback.
+            raw_prediction = None
+            try:
+                raw_unscaled = float(goalkeeper_model.predict(X_gk)[0])
+                raw_prediction = raw_unscaled
+            except Exception as unscaled_err:
+                print(f"[WARN] Goalkeeper unscaled predict failed: {unscaled_err}")
+
+            if (raw_prediction is None or (not np.isfinite(raw_prediction)) or raw_prediction <= 0) and goalkeeper_scaler is not None:
+                try:
+                    X_scaled = goalkeeper_scaler.transform(X_gk)
+                    X_scaled_df = pd.DataFrame(X_scaled, columns=feature_names)
+                    raw_scaled = float(goalkeeper_model.predict(X_scaled_df)[0])
+                    if np.isfinite(raw_scaled):
+                        raw_prediction = raw_scaled
+                except Exception as scaler_err:
+                    print(f"[WARN] Goalkeeper scaler transform/predict failed: {scaler_err}")
+
+            if raw_prediction is None or (not np.isfinite(raw_prediction)) or raw_prediction <= 0:
+                # GK fallback proxy in millions when model output collapses.
+                min_score = min(1.0, max(0.0, minutes / 2200.0))
+                save_score = min(1.0, max(0.0, saves / 120.0))
+                cs_score = min(1.0, max(0.0, clean_sheets / 24.0))
+                spm_score = min(1.0, max(0.0, save_per_match / 5.0))
+                gc_penalty = min(1.0, max(0.0, goals_conceded / 65.0))
+                pen_bonus = min(1.0, max(0.0, penalties_saved / 8.0))
+                if age < 23:
+                    age_score = max(0.65, age / 23.0)
+                elif age <= 31:
+                    age_score = 1.0
+                else:
+                    age_score = max(0.55, 1.0 - ((age - 31) / 12.0))
+                proxy_millions = (
+                    0.8
+                    + 4.0 * min_score
+                    + 6.0 * save_score
+                    + 5.5 * cs_score
+                    + 3.0 * spm_score
+                    + 1.8 * pen_bonus
+                    - 3.5 * gc_penalty
+                ) * age_score
+                raw_prediction = float(max(0.25, proxy_millions))
+
+            # GK model may be trained in euros or millions.
+            if raw_prediction > 100000:
+                predicted_value_euros = max(0.0, raw_prediction)
+                predicted_value_millions = float(predicted_value_euros / 1_000_000)
+            else:
+                predicted_value_millions = max(0.0, raw_prediction)
+                predicted_value_euros = float(predicted_value_millions * 1_000_000)
+
+            # Apply GK calibration to match expected valuation scale.
+            predicted_value_millions = float(max(0.0, predicted_value_millions * GOALKEEPER_VALUE_MULTIPLIER))
+            predicted_value_euros = float(predicted_value_millions * 1_000_000)
+            return jsonify({
+                'success': True,
+                'predictedValue': float(predicted_value_millions),
+                'predictedValueEuros': float(predicted_value_euros),
+                'input': {k: float(v) if isinstance(v, (int, float, np.integer, np.floating)) else v for k, v in {
+                    **gk_row,
+                    'Pos': data.get('Pos')
+                }.items()}
+            })
+
+        # Route defenders to defender-specific model
         is_defender = any(k in pos for k in ('def', 'cb', 'lb', 'rb', 'wb', 'back'))
         if is_defender and defender_model is not None:
             age = _float(data, 'Age', 25)

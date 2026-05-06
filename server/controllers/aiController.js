@@ -28,6 +28,16 @@ export const predictMarketValue = async (req, res) => {
     const minutesPlayed = player.stats?.minutesPlayed ?? 0;
     const tackles = player.stats?.tackles ?? player.stats?.tackle ?? 0;
     const interceptions = player.stats?.interceptions ?? player.stats?.interception ?? 0;
+    const heightCm = Number(player.physical?.height ?? 0);
+    const weightKg = Number(player.physical?.weight ?? 0);
+    const matchesPlayed = Number(player.stats?.matches ?? 0);
+    const saves = Number(player.stats?.saves ?? 0);
+    const cleanSheets = Number(player.stats?.cleanSheets ?? player.stats?.clean_sheets ?? 0);
+    const savePerMatch =
+      Number(player.stats?.savePerMatch ?? player.stats?.save_per_match ?? 0) ||
+      (matchesPlayed > 0 ? saves / matchesPlayed : 0);
+    const goalsConceded = Number(player.stats?.goalsConceded ?? player.stats?.goals_conceded ?? 0);
+    const penaltiesSaved = Number(player.stats?.penaltiesSaved ?? player.stats?.penalties_saved ?? 0);
 
     const pythonRequest = {
       Age: age,
@@ -44,6 +54,16 @@ export const predictMarketValue = async (req, res) => {
       Interception: interceptions,
       Goals: goals,
       Assists: assists,
+      age,
+      height_cm: heightCm,
+      weight_kg: weightKg,
+      matches_played: matchesPlayed,
+      minutes: Number(minutesPlayed),
+      saves,
+      clean_sheets: cleanSheets,
+      save_per_match: savePerMatch,
+      goals_conceded: goalsConceded,
+      penalties_saved: penaltiesSaved,
     };
 
     // Call Python API
@@ -104,8 +124,17 @@ export const predictMarketValue = async (req, res) => {
     const confidence = 0.85;
     const valueRange = { min: Math.max(0, predictedValue * 0.8), max: predictedValue * 1.2 };
 
-    const isDefender = String(player.position || '').toLowerCase().includes('def');
-    const valueFactors = isDefender
+    const playerPos = String(player.position || '').toLowerCase();
+    const isGoalkeeper = playerPos.includes('gk') || playerPos.includes('goalkeeper') || playerPos.includes('keeper');
+    const isDefender = playerPos.includes('def');
+    const valueFactors = isGoalkeeper
+      ? [
+          { factor: 'Saves', contribution: Math.min(30, (saves / 140) * 30), trend: saves > 70 ? 'up' : saves < 20 ? 'down' : 'stable' },
+          { factor: 'Clean Sheets', contribution: Math.min(30, (cleanSheets / 25) * 30), trend: cleanSheets > 12 ? 'up' : cleanSheets < 4 ? 'down' : 'stable' },
+          { factor: 'Save Rate', contribution: Math.min(25, (savePerMatch / 5) * 25), trend: savePerMatch > 3 ? 'up' : savePerMatch < 1.2 ? 'down' : 'stable' },
+          { factor: 'Goals Conceded', contribution: Math.max(5, 15 - Math.min(15, (goalsConceded / 70) * 15)), trend: goalsConceded < 30 ? 'up' : goalsConceded > 55 ? 'down' : 'stable' },
+        ]
+      : isDefender
       ? [
           { factor: 'Tackles', contribution: Math.min(35, (tackles / 120) * 35), trend: tackles > 70 ? 'up' : tackles < 25 ? 'down' : 'stable' },
           { factor: 'Interceptions', contribution: Math.min(30, (interceptions / 100) * 30), trend: interceptions > 55 ? 'up' : interceptions < 20 ? 'down' : 'stable' },
@@ -135,12 +164,27 @@ export const predictMarketValue = async (req, res) => {
       comparablePlayers,
       modelConfidence: confidence,
       inputStats: pythonResult.input || {
-        Age: age,
-        Minutes_Played: minutesPlayed,
-        Tackles: tackles,
-        Interception: interceptions,
-        Goals: goals,
-        Assists: assists,
+        ...(isGoalkeeper
+          ? {
+              age,
+              height_cm: heightCm,
+              weight_kg: weightKg,
+              matches_played: matchesPlayed,
+              minutes: Number(minutesPlayed),
+              saves,
+              clean_sheets: cleanSheets,
+              save_per_match: savePerMatch,
+              goals_conceded: goalsConceded,
+              penalties_saved: penaltiesSaved,
+            }
+          : {
+              Age: age,
+              Minutes_Played: minutesPlayed,
+              Tackles: tackles,
+              Interception: interceptions,
+              Goals: goals,
+              Assists: assists,
+            }),
         Pos: player.position || 'Unknown',
       },
       timestamp: new Date().toISOString()
