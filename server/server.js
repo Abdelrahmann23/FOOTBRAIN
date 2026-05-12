@@ -12,6 +12,7 @@ import reportRoutes from './routes/reports.js';
 import setupRoutes from './routes/setup.js';
 import accountRoutes from './routes/account.js';
 import { initializeAdmin } from './services/adminInit.service.js';
+import { startAgeSyncJob } from './services/ageSync.service.js';
 import { notFound, errorHandler } from './middleware/errorMiddleware.js';
 
 dotenv.config();
@@ -56,6 +57,7 @@ const startServer = async () => {
     app.listen(PORT, async () => {
       console.log(`🚀 Server running on http://localhost:${PORT}`);
       await initializeAdmin();
+      startAgeSyncJob();
     });
   } catch (error) {
     console.error('Failed to start server:', error);

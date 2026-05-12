@@ -23,7 +23,7 @@ import {
 import type { PlayerData } from '@/services/mockAIService';
 import { apiService } from '@/services/api';
 import { useAuth } from '@/contexts/AuthContext';
-import { User, MapPin, Flag, Activity, Ruler, Weight, Plus, Pencil, Trash2, Upload, Link as LinkIcon } from 'lucide-react';
+import { User, MapPin, Flag, Activity, Ruler, Weight, Plus, Pencil, Trash2, Upload, Link as LinkIcon, AlertTriangle, RefreshCw, History, Settings } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { toast } from '@/hooks/use-toast';
 import { PlayerAvatar } from '@/components/ui/player-avatar';
@@ -41,7 +41,7 @@ export default function Players() {
   const [formData, setFormData] = useState({
     shirtNumber: '',
     name: '',
-    age: '',
+    birthDate: '',
     position: '',
     team: '',
     nationality: '',
@@ -70,7 +70,20 @@ export default function Players() {
   });
 
   const [imageInputMode, setImageInputMode] = useState<'url' | 'upload'>('url');
+  const [inactivityThreshold, setInactivityThreshold] = useState(5);
+  const [thresholdInput, setThresholdInput] = useState('5');
+  const [resetConfirmOpen, setResetConfirmOpen] = useState(false);
+  const [isResetting, setIsResetting] = useState(false);
+  const [resetLogs, setResetLogs] = useState<Array<{
+    id: string;
+    resetAt: string;
+    resetByName: string;
+    consecutiveMissedMatchesAtReset: number;
+  }>>([]);
+
   const isGoalkeeperForm = formData.position.toLowerCase() === 'goalkeeper';
+  const isPlayerInactive = (p: typeof selectedPlayer) =>
+    !!p && (p.consecutiveMissedMatches ?? 0) >= inactivityThreshold;
 
   // Load players for the current user's team from the backend
   useEffect(() => {
@@ -88,6 +101,9 @@ export default function Players() {
           return;
         }
         setPlayers(response.data.players as PlayerData[]);
+        const t = response.data.inactivityThreshold ?? 5;
+        setInactivityThreshold(t);
+        setThresholdInput(String(t));
       } catch (error) {
         console.error('Error fetching players:', error);
         setPlayers([]);
@@ -109,7 +125,7 @@ export default function Players() {
       setFormData({
         shirtNumber: '',
         name: '',
-        age: '',
+        birthDate: '',
         position: '',
         team: '',
         nationality: '',
@@ -139,6 +155,14 @@ export default function Players() {
     }
   }, [isDialogOpen, user]);
 
+  useEffect(() => {
+    if (!selectedPlayer) { setResetLogs([]); return; }
+    apiService.getResetLogs(selectedPlayer.id).then((res) => {
+      if (!res.error && res.data) setResetLogs(res.data.logs);
+      else setResetLogs([]);
+    });
+  }, [selectedPlayer?.id]);
+
   const handleImageUpload = (file: File | null) => {
     if (!file) return;
     const reader = new FileReader();
@@ -160,10 +184,10 @@ export default function Players() {
     }
 
     // Validate required fields
-    if (!formData.name || !formData.age || !formData.position || !formData.team || !formData.nationality || !formData.shirtNumber) {
+    if (!formData.name || !formData.birthDate || !formData.position || !formData.team || !formData.nationality || !formData.shirtNumber) {
       toast({
         title: 'Validation Error',
-        description: 'Please fill in all required fields (T-shirt no, Name, Age, Position, Team, Nationality)',
+        description: 'Please fill in all required fields (T-shirt no, Name, Date of Birth, Position, Team, Nationality)',
         variant: 'destructive',
       });
       return;
@@ -172,7 +196,7 @@ export default function Players() {
     try {
       const payload = {
         name: formData.name,
-        age: parseInt(formData.age) || 0,
+        birthDate: formData.birthDate || undefined,
         position: formData.position,
         nationality: formData.nationality,
         globalId: parseInt(formData.shirtNumber) || 0,
@@ -224,7 +248,7 @@ export default function Players() {
       setFormData({
         shirtNumber: '',
         name: '',
-        age: '',
+        birthDate: '',
         position: '',
         team: '',
         nationality: '',
@@ -279,7 +303,7 @@ export default function Players() {
     setFormData({
       shirtNumber: String(selectedPlayer.shirtNumber ?? selectedPlayer.globalId ?? ''),
       name: selectedPlayer.name || '',
-      age: String(selectedPlayer.age || ''),
+      birthDate: selectedPlayer.birthDate || '',
       position: selectedPlayer.position || '',
       team: selectedPlayer.team || '',
       nationality: selectedPlayer.nationality || '',
@@ -320,6 +344,39 @@ export default function Players() {
     setPlayers(prev => prev.filter(p => p.id !== selectedPlayer.id));
     setSelectedPlayer(null);
     toast({ title: 'Player deleted', description: `${selectedPlayer.name} was deleted.` });
+  };
+
+  const handleResetPredictionData = async () => {
+    if (!selectedPlayer) return;
+    setIsResetting(true);
+    try {
+      const response = await apiService.resetPredictionData(selectedPlayer.id);
+      if (response.error || !response.data) throw new Error(response.error || 'Reset failed');
+      const updated = response.data.player as PlayerData;
+      setPlayers(prev => prev.map(p => p.id === updated.id ? updated : p));
+      setSelectedPlayer(updated);
+      setResetConfirmOpen(false);
+      apiService.getResetLogs(updated.id).then(r => {
+        if (!r.error && r.data) setResetLogs(r.data.logs);
+      });
+      toast({ title: 'Prediction data reset', description: `${updated.name}'s injury model data has been cleared.` });
+    } catch (error) {
+      toast({ title: 'Reset failed', description: error instanceof Error ? error.message : 'Failed to reset', variant: 'destructive' });
+    } finally {
+      setIsResetting(false);
+    }
+  };
+
+  const handleUpdateThreshold = async () => {
+    const t = parseInt(thresholdInput);
+    if (isNaN(t) || t < 1 || t > 50) {
+      toast({ title: 'Invalid threshold', description: 'Enter a number between 1 and 50', variant: 'destructive' });
+      return;
+    }
+    const response = await apiService.updateInactivityThreshold(t);
+    if (response.error) { toast({ title: 'Error', description: response.error, variant: 'destructive' }); return; }
+    setInactivityThreshold(t);
+    toast({ title: 'Threshold updated', description: `Inactivity threshold set to ${t} consecutive matches.` });
   };
 
   const filteredPlayers = useMemo(() => {
@@ -382,18 +439,46 @@ export default function Players() {
           Use the search bar in the header to filter players by name, team, position, or shirt number.
         </p>
 
+        {user?.role === 'admin' && (
+          <div className="stat-card border-amber-500/30 mb-4 flex items-center gap-4 flex-wrap">
+            <Settings className="w-4 h-4 text-amber-400 shrink-0" />
+            <div className="flex-1 min-w-0">
+              <h3 className="text-sm font-medium text-amber-300">Inactivity Threshold</h3>
+              <p className="text-xs text-muted-foreground">Consecutive missed matches before "Reset Player Data" appears</p>
+            </div>
+            <div className="flex items-center gap-2">
+              <Input
+                type="number"
+                min="1"
+                max="50"
+                value={thresholdInput}
+                onChange={(e) => setThresholdInput(e.target.value)}
+                className="w-20 h-8 text-center"
+              />
+              <Button size="sm" variant="outline" onClick={handleUpdateThreshold}>Save</Button>
+            </div>
+          </div>
+        )}
+
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           {/* Player List */}
           <div className="lg:col-span-2">
             {filteredPlayers.length > 0 ? (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 {filteredPlayers.map((player) => (
-                  <PlayerCard
-                    key={player.id}
-                    player={player}
-                    isSelected={selectedPlayer?.id === player.id}
-                    onClick={() => setSelectedPlayer(player)}
-                  />
+                  <div key={player.id} className="relative">
+                    {isPlayerInactive(player) && (
+                      <div className="absolute top-2 right-2 z-10 flex items-center gap-1 bg-amber-500/90 text-amber-950 text-[11px] font-bold px-2 py-0.5 rounded-full pointer-events-none">
+                        <AlertTriangle className="w-3 h-3" />
+                        Inactive
+                      </div>
+                    )}
+                    <PlayerCard
+                      player={player}
+                      isSelected={selectedPlayer?.id === player.id}
+                      onClick={() => setSelectedPlayer(player)}
+                    />
+                  </div>
                 ))}
               </div>
             ) : (
@@ -449,8 +534,36 @@ export default function Players() {
                         <span className="text-xs text-emerald-100/85">Age</span>
                       </div>
                       <p className="font-medium text-emerald-300">{selectedPlayer.age} years</p>
+                      {selectedPlayer.birthDate && (
+                        <p className="text-xs text-emerald-100/60 mt-0.5">
+                          {new Date(selectedPlayer.birthDate).toLocaleDateString()}
+                        </p>
+                      )}
                     </div>
                   </div>
+
+                  {isPlayerInactive(selectedPlayer) && (
+                    <div className="mt-4 p-3 rounded-lg border border-amber-500/40 bg-amber-500/10 flex items-start gap-3">
+                      <AlertTriangle className="w-4 h-4 text-amber-400 mt-0.5 shrink-0" />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-semibold text-amber-300">
+                          Inactive — {selectedPlayer.consecutiveMissedMatches} consecutive matches missed
+                        </p>
+                        <p className="text-xs text-amber-100/70 mt-0.5">
+                          Injury model data may be stale. Reset to collect fresh data.
+                        </p>
+                      </div>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="border-amber-500/50 text-amber-300 hover:bg-amber-500/20 shrink-0"
+                        onClick={() => setResetConfirmOpen(true)}
+                      >
+                        <RefreshCw className="w-3.5 h-3.5 mr-1.5" />
+                        Reset Data
+                      </Button>
+                    </div>
+                  )}
                 </div>
 
                 {/* Performance Stats */}
@@ -544,6 +657,29 @@ export default function Players() {
                     ))}
                   </div>
                 </div>
+
+                {/* Reset History */}
+                {resetLogs.length > 0 && (
+                  <div className="stat-card border-amber-500/20 bg-amber-500/[0.02]">
+                    <div className="flex items-center gap-2 mb-3">
+                      <History className="w-4 h-4 text-amber-400" />
+                      <h3 className="font-semibold text-sm">Prediction Data Reset History</h3>
+                    </div>
+                    <div className="space-y-2">
+                      {resetLogs.map((log) => (
+                        <div key={log.id} className="flex items-center justify-between text-xs p-2 rounded-lg bg-amber-500/5 border border-amber-500/15">
+                          <div>
+                            <p className="text-amber-200 font-medium">{new Date(log.resetAt).toLocaleDateString()}</p>
+                            <p className="text-muted-foreground">by {log.resetByName}</p>
+                          </div>
+                          <div className="text-right">
+                            <p className="text-amber-300/70">{log.consecutiveMissedMatchesAtReset} missed at reset</p>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </>
             ) : (
               <div className="stat-card flex flex-col items-center justify-center py-16 text-center">
@@ -596,13 +732,13 @@ export default function Players() {
                   />
                 </div>
                 <div className="grid gap-2">
-                  <Label htmlFor="age">Age *</Label>
+                  <Label htmlFor="birthDate">Date of Birth *</Label>
                   <Input
-                    id="age"
-                    type="number"
-                    placeholder="26"
-                    value={formData.age}
-                    onChange={(e) => setFormData({ ...formData, age: e.target.value })}
+                    id="birthDate"
+                    type="date"
+                    max={new Date().toISOString().split('T')[0]}
+                    value={formData.birthDate}
+                    onChange={(e) => setFormData({ ...formData, birthDate: e.target.value })}
                     required
                   />
                 </div>
@@ -948,6 +1084,52 @@ export default function Players() {
               </Button>
               <Button onClick={handleSavePlayer}>
                 {editingPlayerId ? 'Save Changes' : 'Add Player'}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* Reset Prediction Data Confirmation */}
+        <Dialog open={resetConfirmOpen} onOpenChange={setResetConfirmOpen}>
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2 text-amber-400">
+                <AlertTriangle className="w-5 h-5" />
+                Reset Player Prediction Data
+              </DialogTitle>
+              <DialogDescription>
+                This will permanently clear all injury model data for <strong>{selectedPlayer?.name}</strong>.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="py-2 space-y-3 text-sm">
+              <p className="text-muted-foreground font-medium">The following will be cleared:</p>
+              <ul className="list-disc list-inside space-y-1 text-muted-foreground ml-1">
+                <li>Workload metrics (distance, sprints, HSR, max speed)</li>
+                <li>Match participation count &amp; minutes played</li>
+                <li>Injury history count</li>
+                <li>Rolling aggregate prediction windows</li>
+                <li>All per-match prediction records</li>
+              </ul>
+              <div className="p-3 rounded-lg bg-emerald-500/10 border border-emerald-500/30">
+                <p className="text-emerald-300 text-xs font-medium">
+                  Profile info, goals, assists, tackles, and physical attributes will NOT be affected.
+                </p>
+              </div>
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setResetConfirmOpen(false)} disabled={isResetting}>
+                Cancel
+              </Button>
+              <Button
+                onClick={handleResetPredictionData}
+                disabled={isResetting}
+                className="bg-amber-600 hover:bg-amber-700 text-white"
+              >
+                {isResetting ? (
+                  <><RefreshCw className="w-4 h-4 mr-2 animate-spin" />Resetting...</>
+                ) : (
+                  <><RefreshCw className="w-4 h-4 mr-2" />Confirm Reset</>
+                )}
               </Button>
             </DialogFooter>
           </DialogContent>

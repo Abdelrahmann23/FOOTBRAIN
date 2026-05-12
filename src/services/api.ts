@@ -229,8 +229,35 @@ class ApiService {
 
   // Player endpoints
   async getMyPlayers() {
-    return this.request<{ players: any[] }>('/players', {
+    return this.request<{ players: any[]; inactivityThreshold: number }>('/players', {
       method: 'GET',
+    });
+  }
+
+  async resetPredictionData(playerId: string) {
+    return this.request<{ message: string; player: any }>(`/players/${playerId}/reset-prediction-data`, {
+      method: 'POST',
+    });
+  }
+
+  async getResetLogs(playerId: string) {
+    return this.request<{
+      logs: Array<{
+        id: string;
+        resetAt: string;
+        resetByName: string;
+        consecutiveMissedMatchesAtReset: number;
+        fieldsReset: string[];
+      }>;
+    }>(`/players/${playerId}/reset-logs`, {
+      method: 'GET',
+    });
+  }
+
+  async updateInactivityThreshold(threshold: number) {
+    return this.request<{ inactivityThreshold: number }>('/players/inactivity-threshold', {
+      method: 'PATCH',
+      body: JSON.stringify({ threshold }),
     });
   }
 

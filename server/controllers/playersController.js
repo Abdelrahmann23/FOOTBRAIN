@@ -1,6 +1,19 @@
 import { Player } from '../models/Player.js';
+import { PlayerAggregate } from '../models/PlayerAggregate.js';
+import { PlayerMatchStat } from '../models/PlayerMatchStat.js';
+import { PlayerResetLog } from '../models/PlayerResetLog.js';
 import { Club } from '../models/Team.js';
 import { logActivity } from '../services/activityLog.service.js';
+
+const computeAge = (birthDate) => {
+  if (!birthDate) return null;
+  const today = new Date();
+  const birth = new Date(birthDate);
+  let age = today.getFullYear() - birth.getFullYear();
+  const m = today.getMonth() - birth.getMonth();
+  if (m < 0 || (m === 0 && today.getDate() < birth.getDate())) age--;
+  return age;
+};
 
 // Helper to map Mongo player to frontend PlayerData shape
 const mapPlayerToClient = (playerDoc) => ({
@@ -8,7 +21,11 @@ const mapPlayerToClient = (playerDoc) => ({
   globalId: playerDoc.globalId,
   shirtNumber: playerDoc.shirtNumber ?? playerDoc.globalId,
   name: playerDoc.name,
-  age: playerDoc.age,
+  birthDate: playerDoc.birthDate ? playerDoc.birthDate.toISOString().split('T')[0] : null,
+  age: playerDoc.birthDate ? computeAge(playerDoc.birthDate) : playerDoc.age,
+  consecutiveMissedMatches: playerDoc.consecutiveMissedMatches ?? 0,
+  lastPlayedDate: playerDoc.lastPlayedDate ? playerDoc.lastPlayedDate.toISOString().split('T')[0] : null,
+  predictionDataResetAt: playerDoc.predictionDataResetAt ? playerDoc.predictionDataResetAt.toISOString() : null,
   position: playerDoc.position,
   team: playerDoc.teamName,
   nationality: playerDoc.nationality,
@@ -58,9 +75,12 @@ export const listPlayers = async (req, res) => {
       filter = { clubId: req.user.clubId };
     }
     const players = await Player.find(filter).sort({ name: 1 });
+    const clubDoc = req.user.clubId ? await Club.findById(req.user.clubId).select('settings') : null;
+    const inactivityThreshold = clubDoc?.settings?.inactivityThreshold ?? 5;
 
     res.json({
       players: players.map(mapPlayerToClient),
+      inactivityThreshold,
     });
   } catch (error) {
     console.error('Error fetching players:', error);
@@ -85,6 +105,7 @@ export const createPlayer = async (req, res) => {
     const {
       name,
       age,
+      birthDate,
       position,
       nationality,
       imageUrl,
@@ -106,12 +127,14 @@ export const createPlayer = async (req, res) => {
       resolvedGlobalId = (latest?.globalId || 0) + 1;
     }
 
+    const parsedBirthDate = birthDate ? new Date(birthDate) : null;
     const player = await Player.create({
       user: req.user._id,
       teamName,
       clubId,
       name,
-      age: age ?? 0,
+      birthDate: parsedBirthDate,
+      age: parsedBirthDate ? computeAge(parsedBirthDate) : (age ?? 0),
       position,
       nationality,
       imageUrl: String(imageUrl || '').trim(),
@@ -161,7 +184,8 @@ export const bulkSetupPlayers = async (req, res) => {
       clubId: req.user.clubId,
       teamName: req.user.teamInfo.name,
       name: String(p.name || '').trim(),
-      age: Number(p.age || 0),
+      birthDate: p.birthDate ? new Date(p.birthDate) : null,
+      age: p.birthDate ? computeAge(new Date(p.birthDate)) : Number(p.age || 0),
       position: String(p.position || '').trim(),
       nationality: String(p.nationality || 'Unknown').trim(),
       globalId: Number(p.globalId || p.shirtNumber),
@@ -239,9 +263,15 @@ export const updatePlayer = async (req, res) => {
       return res.status(404).json({ error: 'Player not found' });
     }
 
-    const { name, age, position, nationality, imageUrl, shirtNumber, globalId, stats, physical } = req.body || {};
+    const { name, age, birthDate, position, nationality, imageUrl, shirtNumber, globalId, stats, physical } = req.body || {};
     if (name !== undefined) player.name = String(name).trim();
-    if (age !== undefined) player.age = Number(age) || 0;
+    if (birthDate !== undefined) {
+      const parsed = birthDate ? new Date(birthDate) : null;
+      player.birthDate = parsed;
+      player.age = parsed ? computeAge(parsed) : (player.age ?? 0);
+    } else if (age !== undefined) {
+      player.age = Number(age) || 0;
+    }
     if (position !== undefined) player.position = String(position).trim();
     if (nationality !== undefined) player.nationality = String(nationality).trim();
     if (imageUrl !== undefined) player.imageUrl = String(imageUrl || '').trim();
@@ -280,6 +310,110 @@ export const updatePlayer = async (req, res) => {
     }
     console.error('Error updating player:', error);
     return res.status(500).json({ error: 'Failed to update player', details: error.message });
+  }
+};
+
+export const resetPredictionData = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const filter = req.user.role === 'admin' ? { _id: id } : { _id: id, clubId: req.user.clubId };
+    const player = await Player.findOne(filter);
+    if (!player) return res.status(404).json({ error: 'Player not found' });
+
+    const missedAtReset = player.consecutiveMissedMatches ?? 0;
+
+    player.stats.minutesPlayed = 0;
+    player.stats.matches = 0;
+    player.stats.injuries = 0;
+    player.stats.distanceCoveredKm = 0;
+    player.stats.maxSpeedKmh = 0;
+    player.stats.sprintCount = 0;
+    player.stats.hsrM = 0;
+    player.consecutiveMissedMatches = 0;
+    player.predictionDataResetAt = new Date();
+    await player.save();
+
+    await PlayerAggregate.deleteMany({ playerId: player._id });
+    await PlayerMatchStat.deleteMany({ playerId: player._id });
+
+    const fieldsReset = [
+      'stats.minutesPlayed', 'stats.matches', 'stats.injuries',
+      'stats.distanceCoveredKm', 'stats.maxSpeedKmh', 'stats.sprintCount', 'stats.hsrM',
+      'playerAggregates', 'playerMatchStats',
+    ];
+    await PlayerResetLog.create({
+      playerId: player._id,
+      clubId: player.clubId,
+      resetBy: req.user._id,
+      resetAt: new Date(),
+      consecutiveMissedMatchesAtReset: missedAtReset,
+      fieldsReset,
+    });
+
+    await logActivity(req, {
+      action: 'Reset Prediction Data',
+      resource: 'Players',
+      status: 'success',
+      details: `Reset prediction data for ${player.name} (was ${missedAtReset} consecutive misses)`,
+      metadata: { playerId: String(player._id), missedAtReset },
+    });
+
+    return res.json({ message: 'Prediction data reset successfully', player: mapPlayerToClient(player) });
+  } catch (error) {
+    console.error('Error resetting prediction data:', error);
+    return res.status(500).json({ error: 'Failed to reset prediction data', details: error.message });
+  }
+};
+
+export const getResetLogs = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const filter = req.user.role === 'admin' ? { _id: id } : { _id: id, clubId: req.user.clubId };
+    const player = await Player.findOne(filter).select('_id');
+    if (!player) return res.status(404).json({ error: 'Player not found' });
+
+    const logs = await PlayerResetLog.find({ playerId: player._id })
+      .populate('resetBy', 'name email')
+      .sort({ resetAt: -1 })
+      .limit(20);
+
+    return res.json({
+      logs: logs.map((l) => ({
+        id: l._id.toString(),
+        resetAt: l.resetAt.toISOString(),
+        resetByName: l.resetBy?.name || l.resetBy?.email || 'Unknown',
+        consecutiveMissedMatchesAtReset: l.consecutiveMissedMatchesAtReset,
+        fieldsReset: l.fieldsReset,
+      })),
+    });
+  } catch (error) {
+    console.error('Error fetching reset logs:', error);
+    return res.status(500).json({ error: 'Failed to fetch reset logs', details: error.message });
+  }
+};
+
+export const updateInactivityThreshold = async (req, res) => {
+  try {
+    const { threshold } = req.body;
+    const t = Number(threshold);
+    if (!Number.isInteger(t) || t < 1 || t > 50) {
+      return res.status(400).json({ error: 'Threshold must be an integer between 1 and 50' });
+    }
+    const clubId = req.user.clubId;
+    if (!clubId) return res.status(400).json({ error: 'No club associated with this account' });
+
+    await Club.findByIdAndUpdate(clubId, { $set: { 'settings.inactivityThreshold': t } });
+    await logActivity(req, {
+      action: 'Update Inactivity Threshold',
+      resource: 'Players',
+      status: 'success',
+      details: `Inactivity threshold set to ${t}`,
+      metadata: { threshold: t },
+    });
+    return res.json({ inactivityThreshold: t });
+  } catch (error) {
+    console.error('Error updating inactivity threshold:', error);
+    return res.status(500).json({ error: 'Failed to update threshold', details: error.message });
   }
 };
 

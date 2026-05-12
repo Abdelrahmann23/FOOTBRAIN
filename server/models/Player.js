@@ -63,6 +63,10 @@ const playerSchema = new mongoose.Schema(
       required: true,
       trim: true,
     },
+    birthDate: {
+      type: Date,
+      default: null,
+    },
     age: {
       type: Number,
       default: 0,
@@ -81,6 +85,18 @@ const playerSchema = new mongoose.Schema(
       type: String,
       default: '',
       trim: true,
+    },
+    consecutiveMissedMatches: {
+      type: Number,
+      default: 0,
+    },
+    lastPlayedDate: {
+      type: Date,
+      default: null,
+    },
+    predictionDataResetAt: {
+      type: Date,
+      default: null,
     },
     shirtNumber: {
       type: Number,

@@ -25,6 +25,7 @@ const clubSchema = new mongoose.Schema(
       playStyle: { type: String, default: '' },
       trainingFocus: { type: String, default: '' },
       notes: { type: String, default: '' },
+      inactivityThreshold: { type: Number, default: 5 },
     },
   },
   {

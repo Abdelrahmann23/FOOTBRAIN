@@ -199,6 +199,7 @@ async function applyMatchFinalization(req, match) {
   const playerByGlobal = new Map(players.map((p) => [p.globalId, p]));
 
   const sourceInsights = Array.isArray(match.rawInsights) ? match.rawInsights : [];
+  const participatedPlayerIds = new Set();
   let upsertCount = 0;
   for (const s of sourceInsights) {
     const tempId = Number(s.pid ?? s.tempTrackingId);
@@ -206,6 +207,7 @@ async function applyMatchFinalization(req, match) {
     if (!globalId) continue;
     const player = playerByGlobal.get(globalId);
     if (!player) continue;
+    participatedPlayerIds.add(player._id.toString());
 
     const metrics = {
       goals: toNumber(s.g),
@@ -266,6 +268,18 @@ async function applyMatchFinalization(req, match) {
       windowSize: 6,
     });
   }
+
+  // Update consecutive missed matches for all club players
+  const matchDate = match.matchDate || new Date();
+  const bulkOps = players.map((p) => ({
+    updateOne: {
+      filter: { _id: p._id },
+      update: participatedPlayerIds.has(p._id.toString())
+        ? { $set: { consecutiveMissedMatches: 0, lastPlayedDate: matchDate } }
+        : { $inc: { consecutiveMissedMatches: 1 } },
+    },
+  }));
+  if (bulkOps.length > 0) await Player.bulkWrite(bulkOps);
 
   match.status = 'finalized';
   match.finalizedAt = new Date();

@@ -6,7 +6,11 @@ export interface PlayerData {
   globalId?: number;
   shirtNumber?: number;
   name: string;
+  birthDate?: string | null;
   age: number;
+  consecutiveMissedMatches?: number;
+  lastPlayedDate?: string | null;
+  predictionDataResetAt?: string | null;
   position: string;
   team: string;
   nationality: string;
