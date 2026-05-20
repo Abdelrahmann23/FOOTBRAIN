@@ -176,9 +176,15 @@ export default function VideoAnalysis() {
 
   const filteredInsights = useMemo(() => {
     if (!playerInsights?.length) return [];
-    if (teamFilter === 'all') return playerInsights;
-    if (teamFilter === 'team-a') return playerInsights.filter((p) => p.team === 'Team A');
-    return playerInsights.filter((p) => p.team === 'Team B');
+    const isGhost = (p: PlayerInsight) =>
+      (p.pid === 0 || p.team === 'Unknown') &&
+      p.dist_m === 0 && p.max_spd === 0 && p.hsr_m === 0 &&
+      p.spr === 0 && p.risk === 0 && p.g === 0 && p.a === 0 &&
+      (p.tackles ?? 0) === 0 && (p.interceptions ?? 0) === 0 && (p.blocks ?? 0) === 0;
+    const valid = playerInsights.filter((p) => !isGhost(p));
+    if (teamFilter === 'all') return valid;
+    if (teamFilter === 'team-a') return valid.filter((p) => p.team === 'Team A');
+    return valid.filter((p) => p.team === 'Team B');
   }, [playerInsights, teamFilter]);
 
   const chartData = useMemo(
