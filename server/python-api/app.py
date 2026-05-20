@@ -35,9 +35,10 @@ goalkeeper_feature_names = None
 # Injury model must expect injury features (age, height, weight, bmi, hamstring, sprint_speed, training_hours).
 # Do NOT use FIFA-style models (Release clause, International reputation, etc.) for injury.
 # First try your trained model at f:\miu\xgboost_model.pkl (or set env INJURY_MODEL_PATH), then project models.
-INJURY_MODEL_EXTERNAL = os.environ.get('INJURY_MODEL_PATH', r'C:\Users\Dell\Downloads\injury_model (1).pkl')
-INJURY_SCALER_PATH = os.environ.get('INJURY_SCALER_PATH', r'C:\Users\Dell\Downloads\scaler (1).pkl')
-INJURY_MODEL_PATH = os.path.join(os.path.dirname(__file__), 'models', 'xgb_model.pkl')
+INJURY_MODEL_EXTERNAL = os.environ.get('INJURY_MODEL_PATH', r'C:\Users\Dell\Downloads\xgboost1.pkl')
+INJURY_SCALER_PATH = os.environ.get('INJURY_SCALER_PATH', r'C:\Users\Dell\Downloads\scaler (3).pkl')
+INJURY_MODEL_PATH = os.path.join(os.path.dirname(__file__), 'models', 'xgboost1.pkl')
+INJURY_SCALER_FALLBACK = os.path.join(os.path.dirname(__file__), 'models', 'scaler3.pkl')
 INJURY_MODEL_FALLBACK = os.path.join(os.path.dirname(__file__), 'models', 'xgboost_model.pkl')
 injury_model = None
 injury_feature_names = None  # set from model.feature_names_in_ if available
@@ -187,20 +188,22 @@ def load_injury_model():
                 pass
             if injury_feature_names is not None:
                 print(f"   Features ({len(injury_feature_names)}): {list(injury_feature_names)}")
-            if INJURY_SCALER_PATH and os.path.isfile(INJURY_SCALER_PATH):
+            for _scaler_path in [INJURY_SCALER_PATH, INJURY_SCALER_FALLBACK]:
+                if not (_scaler_path and os.path.isfile(_scaler_path)):
+                    continue
                 try:
-                    with open(INJURY_SCALER_PATH, 'rb') as sf:
+                    with open(_scaler_path, 'rb') as sf:
                         injury_scaler = pickle.load(sf)
-                    print(f"[OK] Injury scaler loaded from {INJURY_SCALER_PATH}")
-                    # If model does not expose names, inherit exact training order from scaler.
+                    print(f"[OK] Injury scaler loaded from {_scaler_path}")
                     if injury_feature_names is None:
                         scaler_names = getattr(injury_scaler, 'feature_names_in_', None)
                         if scaler_names is not None and len(scaler_names) > 0:
                             injury_feature_names = list(scaler_names)
                             print(f"   Using scaler feature order ({len(injury_feature_names)}): {injury_feature_names}")
+                    break
                 except Exception as se:
                     injury_scaler = None
-                    print(f"[WARN] Injury scaler could not be loaded: {se}")
+                    print(f"[WARN] Injury scaler could not be loaded from {_scaler_path}: {se}")
             return True
         except Exception as e:
             print(f"[ERROR] Error loading {path}: {str(e)}")
@@ -595,6 +598,14 @@ DEFAULT_INJURY_FEATURES = [
 NEW_INJURY_FEATURES_6 = [
     'bmi', 'minutes_played', 'distance_covered_km', 'max_speed_kmh', 'sprint_count', 'hsr_m'
 ]
+# xgboost1.pkl: base inputs + engineered features from feature engineering pipeline
+NEW_INJURY_FEATURES_V2 = [
+    'Age', 'Height', 'Weight', 'BMI',
+    'Distance_Covered_km', 'Minutes_Played', 'Max_Speed_kmh', 'Sprint_Count', 'HSR_m',
+    'Sleep_Hours', 'Recovery_Score', 'Previous_Injuries',
+    'Total_Load', 'Intensity_Score', 'Load_Per_Minute', 'HSR_Per_Minute', 'Sprint_Per_Minute',
+    'Recovery_Load_Balance', 'Sleep_Recovery_Index', 'Fatigue_Score', 'Injury_Vulnerability', 'BMI_Load_Interaction',
+]
 
 
 def _float(data, key, default):
@@ -641,7 +652,7 @@ def predict_injury():
         sprint_count = _float(data, 'sprint_count', 0.0)
         max_speed_kmh = _float(data, 'max_speed_kmh', sprint_speed)
         minutes_played = _float(data, 'minutes_played', 90.0)
-        # Engineered features for the new model
+        # Legacy engineered features (backward compatibility)
         load = float(distance_covered_km + hsr_m)
         intensity = float(sprint_count * max_speed_kmh)
         workload = float(minutes_played * distance_covered_km)
@@ -658,13 +669,27 @@ def predict_injury():
         stress_level = _float(data, 'stress_level', 30)
         nutrition = _float(data, 'nutrition', 70)
         warmup = _float(data, 'warmup', 1)
+        recovery_score = _float(data, 'recovery_score', 70)  # 0-100
+
+        # New model (xgboost1.pkl) feature engineering
+        total_load = float(distance_covered_km + (sprint_count * 0.08) + (hsr_m / 1000))
+        intensity_score = float(max_speed_kmh * sprint_count)
+        load_per_minute = float(distance_covered_km / (minutes_played + 1))
+        hsr_per_minute = float(hsr_m / (minutes_played + 1))
+        sprint_per_minute = float(sprint_count / (minutes_played + 1))
+        recovery_load_balance = float(recovery_score / (total_load + 1))
+        sleep_recovery_index = float(sleep_hours * recovery_score)
+        fatigue_score_val = float(total_load / (sleep_hours + 1))
+        injury_vulnerability = float(previous_injuries * fatigue_score_val)
+        bmi_load_interaction = float(bmi_val * total_load)
 
         # Use model's expected feature names (injury columns only, no Release clause etc.)
         n_expected = getattr(injury_model, 'n_features_in_', None)
         if injury_feature_names is not None and len(injury_feature_names) > 0:
             col_names = [str(x).strip() for x in injury_feature_names]
+        elif n_expected is not None and n_expected == len(NEW_INJURY_FEATURES_V2):
+            col_names = list(NEW_INJURY_FEATURES_V2)
         elif n_expected is not None and n_expected == len(NEW_INJURY_FEATURES_6):
-            # New injury model schema from your latest training
             col_names = list(NEW_INJURY_FEATURES_6)
         elif n_expected is not None and n_expected == len(INJURY_MODEL_FEATURES):
             col_names = list(INJURY_MODEL_FEATURES)
@@ -717,6 +742,18 @@ def predict_injury():
             'stress_level': stress_level,
             'nutrition': nutrition,
             'warmup': warmup,
+            # New model (xgboost1.pkl) features
+            'recovery_score': recovery_score,
+            'total_load': total_load,
+            'intensity_score': intensity_score,
+            'load_per_minute': load_per_minute,
+            'hsr_per_minute': hsr_per_minute,
+            'sprint_per_minute': sprint_per_minute,
+            'recovery_load_balance': recovery_load_balance,
+            'sleep_recovery_index': sleep_recovery_index,
+            'fatigue_score': fatigue_score_val,
+            'injury_vulnerability': injury_vulnerability,
+            'bmi_load_interaction': bmi_load_interaction,
         }
 
         # Features that should be int (like training data): Age, Position, Matches, Previous_injuries, Warmup
@@ -789,17 +826,20 @@ def predict_injury():
         # Some multiclass injury models are heavily centered on "medium"; these signals
         # keep output responsive to meaningful input changes.
         def _workload_heuristic_score():
-            score = 0.08
-            score += max(0.0, (age - 22) / 18.0) * 0.10
-            score += min(1.0, minutes_played / 1200.0) * 0.22
-            score += min(1.0, distance_covered_km / 180.0) * 0.18
-            score += min(1.0, sprint_count / 550.0) * 0.14
-            score += min(1.0, hsr_m / 12000.0) * 0.14
-            score += min(1.0, max_speed_kmh / 40.0) * 0.08
+            score = 0.05
+            score += max(0.0, (age - 22) / 18.0) * 0.08
+            score += min(1.0, minutes_played / 1200.0) * 0.14
+            score += min(1.0, distance_covered_km / 180.0) * 0.11
+            score += min(1.0, sprint_count / 550.0) * 0.09
+            score += min(1.0, hsr_m / 12000.0) * 0.09
+            score += min(1.0, max_speed_kmh / 40.0) * 0.05
+            score += min(1.0, previous_injuries / 5.0) * 0.18
+            score += max(0.0, (8.0 - sleep_hours) / 8.0) * 0.10
+            score += max(0.0, (100.0 - recovery_score) / 100.0) * 0.10
             if bmi_val > 26:
-                score += min(1.0, (bmi_val - 26.0) / 8.0) * 0.07
+                score += min(1.0, (bmi_val - 26.0) / 8.0) * 0.06
             elif bmi_val < 19:
-                score += min(1.0, (19.0 - bmi_val) / 6.0) * 0.07
+                score += min(1.0, (19.0 - bmi_val) / 6.0) * 0.06
             return float(max(0.0, min(1.0, score)))
 
         # Anchors from balanced_football_injury_dataset.xlsx (class means)
@@ -1000,20 +1040,26 @@ def predict_injury():
             else:
                 risk_level = 'low'
 
-        # Simple risk factors from inputs (for UI)
+        # Risk factors from inputs (for UI)
         top_risk_factors = []
+        if previous_injuries > 0:
+            top_risk_factors.append({'factor': 'Previous Injuries', 'impact': min(0.9, previous_injuries * 0.18), 'description': 'History of injuries significantly increases recurrence risk'})
+        if recovery_score < 60:
+            top_risk_factors.append({'factor': 'Recovery Score', 'impact': min(0.4, (60 - recovery_score) / 60), 'description': 'Poor recovery score indicates elevated fatigue and injury risk'})
+        if sleep_hours < 7:
+            top_risk_factors.append({'factor': 'Sleep Quality', 'impact': min(0.3, (7 - sleep_hours) / 7), 'description': 'Insufficient sleep impairs recovery and increases injury risk'})
         if age > 28:
             top_risk_factors.append({'factor': 'Age', 'impact': min(0.3, (age - 28) / 50), 'description': 'Older players have higher injury risk'})
-        if minutes_played > 95:
-            top_risk_factors.append({'factor': 'Minutes played', 'impact': 0.2, 'description': 'Very high match minutes can increase fatigue risk'})
-        if distance_covered_km > 12:
-            top_risk_factors.append({'factor': 'Distance covered', 'impact': 0.2, 'description': 'High total distance can increase workload stress'})
-        if sprint_count > 320:
-            top_risk_factors.append({'factor': 'Sprint count', 'impact': 0.2, 'description': 'Frequent sprinting can raise soft-tissue injury risk'})
-        if hsr_m > 9000:
-            top_risk_factors.append({'factor': 'HSR', 'impact': 0.2, 'description': 'High-speed running load can raise injury probability'})
+        if minutes_played > 900:
+            top_risk_factors.append({'factor': 'Minutes Played', 'impact': min(0.3, (minutes_played - 900) / 600), 'description': 'High cumulative match minutes increases fatigue risk'})
+        if distance_covered_km > 120:
+            top_risk_factors.append({'factor': 'Distance Covered', 'impact': min(0.3, (distance_covered_km - 120) / 120), 'description': 'High total distance increases workload stress'})
+        if sprint_count > 300:
+            top_risk_factors.append({'factor': 'Sprint Count', 'impact': min(0.3, (sprint_count - 300) / 300), 'description': 'Frequent sprinting can raise soft-tissue injury risk'})
+        if hsr_m > 8000:
+            top_risk_factors.append({'factor': 'HSR', 'impact': min(0.3, (hsr_m - 8000) / 4000), 'description': 'High-speed running load raises injury probability'})
         if bmi_val > 26 or bmi_val < 19:
-            top_risk_factors.append({'factor': 'BMI', 'impact': 0.2, 'description': 'BMI outside optimal range can affect injury risk'})
+            top_risk_factors.append({'factor': 'BMI', 'impact': 0.15, 'description': 'BMI outside optimal range can affect injury risk'})
         if not top_risk_factors:
             top_risk_factors.append({'factor': 'Overall fitness', 'impact': 1.0 - risk_probability, 'description': 'Physical attributes within normal range'})
 

@@ -223,7 +223,7 @@ export const predictInjury = async (req, res) => {
     }
 
     if (!physical) {
-      return res.status(400).json({ error: 'Physical attributes are required for injury prediction (age, height, weight, minutes_played, distance_covered_km, max_speed_kmh, sprint_count, hsr_m)' });
+      return res.status(400).json({ error: 'Physical attributes are required for injury prediction (age, height, weight, minutes_played, distance_covered_km, max_speed_kmh, sprint_count, hsr_m, sleep_hours, recovery_score, previous_injuries)' });
     }
     if (!playerId) {
       return res.status(400).json({ error: 'playerId is required to save linked injury predictions' });
@@ -237,6 +237,9 @@ export const predictInjury = async (req, res) => {
     const max_speed_kmh = physical.max_speed_kmh ?? 34;
     const sprint_count = physical.sprint_count ?? 250;
     const hsr_m = physical.hsr_m ?? 8000;
+    const sleep_hours = physical.sleep_hours ?? 7;
+    const recovery_score = physical.recovery_score ?? 70;
+    const previous_injuries = physical.previous_injuries ?? 0;
 
     const pythonRequest = {
       age: Number(age),
@@ -247,6 +250,9 @@ export const predictInjury = async (req, res) => {
       max_speed_kmh: Number(max_speed_kmh),
       sprint_count: Number(sprint_count),
       hsr_m: Number(hsr_m),
+      sleep_hours: Number(sleep_hours),
+      recovery_score: Number(recovery_score),
+      previous_injuries: Number(previous_injuries),
     };
 
     let response;
@@ -353,6 +359,9 @@ export const predictInjury = async (req, res) => {
         max_speed_kmh: Number(max_speed_kmh),
         sprint_count: Number(sprint_count),
         hsr_m: Number(hsr_m),
+        sleep_hours: Number(sleep_hours),
+        recovery_score: Number(recovery_score),
+        previous_injuries: Number(previous_injuries),
       },
       riskProbability,
       riskLevel,

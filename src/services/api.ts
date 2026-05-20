@@ -153,7 +153,7 @@ class ApiService {
     });
   }
 
-  /** Injury prediction uses match workload attributes (+ BMI computed from height/weight backend-side). */
+  /** Injury prediction uses match workload, recovery, sleep, and injury history attributes. */
   async predictInjury(payload: {
     playerId?: string;
     physical: {
@@ -165,6 +165,9 @@ class ApiService {
       max_speed_kmh: number;
       sprint_count: number;
       hsr_m: number;
+      sleep_hours: number;
+      recovery_score: number;
+      previous_injuries: number;
     };
   }) {
     return this.request<{

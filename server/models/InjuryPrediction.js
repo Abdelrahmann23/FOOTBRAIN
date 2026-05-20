@@ -10,6 +10,9 @@ const physicalInputSchema = new mongoose.Schema(
     max_speed_kmh: { type: Number, default: 0 },
     sprint_count: { type: Number, default: 0 },
     hsr_m: { type: Number, default: 0 },
+    sleep_hours: { type: Number, default: 7 },
+    recovery_score: { type: Number, default: 70 },
+    previous_injuries: { type: Number, default: 0 },
   },
   { _id: false }
 );

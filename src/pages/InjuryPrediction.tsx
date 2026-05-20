@@ -19,6 +19,9 @@ const defaultPhysical = {
   max_speed_kmh: 35.5,
   sprint_count: 310,
   hsr_m: 8500,
+  sleep_hours: 7,
+  recovery_score: 70,
+  previous_injuries: 0,
 };
 
 type InjuryInputs = typeof defaultPhysical;
@@ -55,6 +58,9 @@ export default function InjuryPrediction() {
   const [maxSpeedKmh, setMaxSpeedKmh] = useState(defaultPhysical.max_speed_kmh);
   const [sprintCount, setSprintCount] = useState(defaultPhysical.sprint_count);
   const [hsrM, setHsrM] = useState(defaultPhysical.hsr_m);
+  const [sleepHours, setSleepHours] = useState(defaultPhysical.sleep_hours);
+  const [recoveryScore, setRecoveryScore] = useState(defaultPhysical.recovery_score);
+  const [previousInjuries, setPreviousInjuries] = useState(defaultPhysical.previous_injuries);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   const bmi = height && weight ? (weight / Math.pow(height / 100, 2)).toFixed(1) : '—';
@@ -90,6 +96,9 @@ export default function InjuryPrediction() {
     setMaxSpeedKmh(injuryInputs.max_speed_kmh);
     setSprintCount(injuryInputs.sprint_count);
     setHsrM(injuryInputs.hsr_m);
+    setSleepHours(injuryInputs.sleep_hours);
+    setRecoveryScore(injuryInputs.recovery_score);
+    setPreviousInjuries(injuryInputs.previous_injuries);
   }, [selectedPlayer]);
 
   const runPrediction = async () => {
@@ -108,6 +117,9 @@ export default function InjuryPrediction() {
           max_speed_kmh: maxSpeedKmh,
           sprint_count: sprintCount,
           hsr_m: hsrM,
+          sleep_hours: sleepHours,
+          recovery_score: recoveryScore,
+          previous_injuries: previousInjuries,
         },
       });
       if (response.error) {
@@ -126,7 +138,7 @@ export default function InjuryPrediction() {
     <div className="min-h-screen">
       <Header
         title="Injury Prediction"
-        subtitle="AI injury risk from BMI, minutes, distance, speed, sprints, and HSR"
+        subtitle="AI injury risk from workload, recovery, sleep, and injury history"
       />
 
       <div className="p-6 animate-fade-in">
@@ -284,6 +296,49 @@ export default function InjuryPrediction() {
                     onChange={(e) => {
                       const value = Number(e.target.value) || 0;
                       setHsrM(value);
+                    }}
+                    className="mt-1"
+                  />
+                </div>
+                <div>
+                  <label className="text-sm text-muted-foreground">Sleep Hours</label>
+                  <Input
+                    type="number"
+                    min={0}
+                    max={24}
+                    step={0.5}
+                    value={sleepHours}
+                    onChange={(e) => {
+                      const value = Number(e.target.value) || 0;
+                      setSleepHours(value);
+                    }}
+                    className="mt-1"
+                  />
+                </div>
+                <div>
+                  <label className="text-sm text-muted-foreground">Recovery Score (0–100)</label>
+                  <Input
+                    type="number"
+                    min={0}
+                    max={100}
+                    value={recoveryScore}
+                    onChange={(e) => {
+                      const value = Number(e.target.value) || 0;
+                      setRecoveryScore(value);
+                    }}
+                    className="mt-1"
+                  />
+                </div>
+                <div>
+                  <label className="text-sm text-muted-foreground">Previous Injuries</label>
+                  <Input
+                    type="number"
+                    min={0}
+                    max={20}
+                    value={previousInjuries}
+                    onChange={(e) => {
+                      const value = Number(e.target.value) || 0;
+                      setPreviousInjuries(value);
                     }}
                     className="mt-1"
                   />
