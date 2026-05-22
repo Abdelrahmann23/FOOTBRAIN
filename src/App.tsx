@@ -17,6 +17,7 @@ import MarketValue from "./pages/MarketValue";
 import VideoAnalysis from "./pages/VideoAnalysis";
 import Players from "./pages/Players";
 import Profile from "./pages/Profile";
+import Reports from "./pages/Reports";
 import Admin from "./pages/Admin";
 import NotFound from "./pages/NotFound";
 
@@ -98,6 +99,16 @@ const App = () => (
                 <ProtectedRoute>
                   <MainLayout>
                     <Profile />
+                  </MainLayout>
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/reports"
+              element={
+                <ProtectedRoute>
+                  <MainLayout>
+                    <Reports />
                   </MainLayout>
                 </ProtectedRoute>
               }

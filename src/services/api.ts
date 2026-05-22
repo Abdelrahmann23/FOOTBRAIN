@@ -564,6 +564,13 @@ class ApiService {
     });
   }
 
+  async getClubPredictionsReport() {
+    return this.request<{
+      injury: Record<string, { riskProbability: number; riskLevel: 'low' | 'medium' | 'high'; createdAt: string }>;
+      marketValue: Record<string, { predictedValue: number; valueRange: { min: number; max: number }; createdAt: string }>;
+    }>('/reports/club-predictions', { method: 'GET' });
+  }
+
   async getTeamPerformancePlayersReport() {
     return this.request<{
       players: Array<{

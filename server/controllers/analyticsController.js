@@ -584,6 +584,46 @@ export const listRecentReportRequests = async (req, res) => {
   return res.json({ requests: rows });
 };
 
+export const clubPredictionsReport = async (req, res) => {
+  const clubId = req.user.clubId;
+  if (!clubId) return res.status(400).json({ error: 'Club context missing' });
+
+  const [latestInjury, latestValue] = await Promise.all([
+    InjuryPrediction.aggregate([
+      { $match: { clubId, playerId: { $ne: null } } },
+      { $sort: { createdAt: -1 } },
+      { $group: { _id: '$playerId', doc: { $first: '$$ROOT' } } },
+      { $replaceRoot: { newRoot: '$doc' } },
+    ]),
+    MarketValuePrediction.aggregate([
+      { $match: { clubId, playerId: { $ne: null } } },
+      { $sort: { createdAt: -1 } },
+      { $group: { _id: '$playerId', doc: { $first: '$$ROOT' } } },
+      { $replaceRoot: { newRoot: '$doc' } },
+    ]),
+  ]);
+
+  const injury = {};
+  latestInjury.forEach((r) => {
+    injury[String(r.playerId)] = {
+      riskProbability: Number(r.riskProbability || 0),
+      riskLevel: r.riskLevel || 'low',
+      createdAt: r.createdAt,
+    };
+  });
+
+  const marketValue = {};
+  latestValue.forEach((r) => {
+    marketValue[String(r.playerId)] = {
+      predictedValue: Number(r.predictedValue || 0),
+      valueRange: { min: Number(r.valueRange?.min || 0), max: Number(r.valueRange?.max || 0) },
+      createdAt: r.createdAt,
+    };
+  });
+
+  return res.json({ injury, marketValue });
+};
+
 export const teamPerformancePlayersReport = async (req, res) => {
   const playersFilter = req.user.role === 'admin' ? {} : { clubId: req.user.clubId };
   const players = await Player.find(playersFilter)

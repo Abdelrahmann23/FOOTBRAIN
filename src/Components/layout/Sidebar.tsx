@@ -24,6 +24,7 @@ const navItems = [
   { icon: TrendingUp, label: 'Market Value', path: '/market-value' },
   { icon: Video, label: 'Video Analysis', path: '/video' },
   { icon: Users, label: 'Players', path: '/players' },
+  { icon: FileText, label: 'Reports', path: '/reports' },
 ];
 
 const adminNavItems = [
